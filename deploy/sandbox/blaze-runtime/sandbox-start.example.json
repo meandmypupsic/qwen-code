@@ -1,0 +1,17 @@
+{
+  "image": "<docker-registry>/<namespace>/blaze-runtime-sandbox:<tag>",
+  "ports": [
+    {
+      "name": "blaze-runtime",
+      "containerPort": 4170,
+      "protocol": "HTTP"
+    }
+  ],
+  "env": {
+    "BLAZE_RUNTIME_TOKEN": "<runtime-bearer-token>",
+    "BLAZE_DP_TOKEN": "<dp-token>",
+    "BLAZE_RUNTIME_HOST": "0.0.0.0",
+    "BLAZE_RUNTIME_PORT": "4170",
+    "BLAZE_RUNTIME_WORKSPACE": "/workspace"
+  }
+}

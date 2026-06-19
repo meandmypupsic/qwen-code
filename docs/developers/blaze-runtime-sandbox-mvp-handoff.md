@@ -463,6 +463,39 @@ means the SSE handshake happened, but it does not prove that model output is
 being delivered. The proof requires `event: session_update` frames after
 prompts.
 
+## Packaging And Sandbox Image Flow
+
+The repository now contains a ready-to-use sandbox image scaffold:
+
+```text
+deploy/sandbox/blaze-runtime/
+```
+
+Use its runbook instead of inventing a new Dockerfile or entrypoint:
+
+```text
+deploy/sandbox/blaze-runtime/README.md
+```
+
+That flow replaces the old `nessy-cli` async image pipeline:
+
+```text
+publish npm artifact
+  -> install npm artifact in Dockerfile
+  -> build and publish Docker image
+  -> pass image + env + port 4170 to sandbox start
+```
+
+Important files:
+
+- `deploy/sandbox/blaze-runtime/Dockerfile`
+- `deploy/sandbox/blaze-runtime/entrypoint.sh`
+- `deploy/sandbox/blaze-runtime/sandbox.env.example`
+- `deploy/sandbox/blaze-runtime/sandbox-start.example.json`
+
+The Docker image entrypoint starts `blaze-runtime serve` once. Do not add a
+per-prompt `ExecuteCommand` loop around it.
+
 ## What Not To Do
 
 Do not:

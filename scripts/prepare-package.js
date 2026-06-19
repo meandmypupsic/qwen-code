@@ -42,6 +42,7 @@ function isDirectRun() {
 function verifyBundleArtifacts(rootDir, distDir) {
   const requiredPaths = [
     path.join(distDir, 'cli.js'),
+    path.join(distDir, 'blaze-runtime.js'),
     path.join(distDir, 'vendor'),
     path.join(distDir, 'bundled', 'qc-helper', 'docs'),
   ];
@@ -149,6 +150,33 @@ if (result.signal) {
   fs.writeFileSync(cliEntryPath, cliEntryContent, { mode: 0o755 });
   console.log('Created dist cli-entry.js wrapper');
 
+  const blazeRuntimeEntryContent = `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const runtimePath = join(__dirname, 'blaze-runtime.js');
+
+const result = spawnSync(
+  process.execPath,
+  ['--expose-gc', runtimePath, ...process.argv.slice(2)],
+  { stdio: 'inherit' },
+);
+
+if (result.signal) {
+  process.kill(process.pid, result.signal);
+} else {
+  process.exit(result.status ?? 1);
+}
+`;
+
+  const blazeRuntimeEntryPath = path.join(distDir, 'blaze-runtime-entry.js');
+  fs.writeFileSync(blazeRuntimeEntryPath, blazeRuntimeEntryContent, {
+    mode: 0o755,
+  });
+  console.log('Created dist blaze-runtime-entry.js wrapper');
+
   const rootPackageJson = JSON.parse(
     fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8'),
   );
@@ -163,10 +191,13 @@ if (result.signal) {
     main: 'cli.js',
     bin: {
       qwen: 'cli-entry.js',
+      'blaze-runtime': 'blaze-runtime-entry.js',
     },
     files: [
       'cli-entry.js',
+      'blaze-runtime-entry.js',
       'cli.js',
+      'blaze-runtime.js',
       // Worker thread entry loaded by FzfWorkerHandle at runtime via
       // `resolveBundleDir(import.meta.url)` + `path.join(dir, 'fzfWorker.js')`.
       // Must ship in the tarball or the @-picker silently falls back to the
