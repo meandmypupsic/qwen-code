@@ -377,25 +377,33 @@ curl -s -X POST \
 
 ✅ **Результат:** Второй промпт в той же сессии принят
 
-### 7.3. Проверка SSE событий
+### 7.3. Проверка SSE событий (корректный способ)
+
+> **Важно:** Текущий server code читает `Last-Event-ID` из HTTP header, а не из query-параметра.
+> Query-параметр `?lastEventId=0` **не является правильным способом** для replay событий.
+
+**Правильный способ подписки на SSE stream:**
 
 ```bash
-curl -s -m 5 \
+curl -N -sS \
   -H "Authorization: Bearer local-dev-token" \
   -H "X-Qwen-Client-Id: client_9cefc053-6679-4675-9514-712b14a6c3c4" \
-  "http://127.0.0.1:4170/session/a0049cda-856e-4678-9384-b9c1cf8b059f/events?lastEventId=0"
+  -H "Last-Event-ID: 0" \
+  "http://127.0.0.1:4170/session/a0049cda-856e-4678-9384-b9c1cf8b059f/events?maxQueued=1024"
 ```
 
-**Ответ:**
+**Что означает `retry: 3000`:**
 
-```
-retry: 3000
-```
+- Это только SSE handshake — сервер сообщил клиенту reconnect delay
+- `retry: 3000` **не доказывает** ответ модели
 
-- SSE соединение держится (retry: 3000ms)
-- Exit code 28 (timeout) — ожидаемое поведение для SSE long polling
+**Настоящее доказательство ответа модели требует:**
 
-✅ **Результат:** SSE endpoint работает
+- Увидеть события `event: session_update` с данными модели
+- Увидеть событие `event: turn_complete` с `stopReason: "end_turn"`
+- Для доказательства контекста — второй prompt должен вернуть кодовое слово из первого (см. секцию 15)
+
+✅ **Результат:** SSE endpoint работает (корректная подписка через HTTP header `Last-Event-ID`)
 
 ---
 
@@ -452,15 +460,15 @@ curl -s -H "Authorization: Bearer local-dev-token" \
 
 ## 9. Итоговая таблица требований MVP
 
-| Требование                             | Статус | Подтверждение                                      |
-| -------------------------------------- | ------ | -------------------------------------------------- |
-| 1. `blaze-runtime serve` запускается   | ✅     | Daemon PID 77042, uptime > 100s                    |
-| 2. `/health` возвращает 401 без токена | ✅     | `HTTP 401 {"error":"Unauthorized"}`                |
-| 3. `/health` возвращает 200 с токеном  | ✅     | `HTTP 200 {"status":"ok"}`                         |
-| 4. `/workspace/preflight` корректен    | ✅     | Все клетки `status: ok`                            |
-| 5. Промпт достигает Nestor/Qwen        | ✅     | Модель `tgpt/qwen3-next-80b-a3b-instruct(dp-auth)` |
-| 6. Второй промпт сохраняет контекст    | ✅     | Та же сессия, `lastEventId` растёт                 |
-| 7. Процесс long-lived                  | ✅     | Daemon + ACP child работают > 2 минут              |
+| Требование                             | Статус | Подтверждение                                                                                   |
+| -------------------------------------- | ------ | ----------------------------------------------------------------------------------------------- |
+| 1. `blaze-runtime serve` запускается   | ✅     | Daemon PID 77042, uptime > 100s                                                                 |
+| 2. `/health` возвращает 401 без токена | ✅     | `HTTP 401 {"error":"Unauthorized"}`                                                             |
+| 3. `/health` возвращает 200 с токеном  | ✅     | `HTTP 200 {"status":"ok"}`                                                                      |
+| 4. `/workspace/preflight` корректен    | ✅     | Все клетки `status: ok`                                                                         |
+| 5. Промпт достигает Nestor/Qwen        | ✅     | SSE events содержат ответ модели (см. секцию 15.2)                                              |
+| 6. Второй промпт сохраняет контекст    | ✅     | ORBIT-17 возвращён во втором prompt, daemon PID и ACP child PID не изменились (см. секцию 15.3) |
+| 7. Процесс long-lived                  | ✅     | Daemon + ACP child работают > 2 минут                                                           |
 
 ---
 
@@ -525,15 +533,27 @@ blaze-runtime serve (PID 77042)
 
 ## 13. Выводы
 
-### 13.1. Успешно доказано
+### 13.1. Первичная проверка (секции 1–12)
 
-1. ✅ **Blaze Runtime MVP работает локально**
+Первичная проверка подтвердила базовую работоспособность:
+
+1. ✅ **Blaze Runtime MVP запускается локально** — daemon стартует без crash
 2. ✅ **Auth wiring корректна** — `dp-auth` определяется из `BLAZE_DP_TOKEN`
 3. ✅ **Процесс-модель верна** — daemon + long-lived ACP child
-4. ✅ **Сессии сохраняются** — multiple prompts в одной сессии работают
-5. ✅ **SSE transport работает** — события доставляются
+4. ✅ **Сессии создаются** — multiple prompts в одной сессии принимаются
+5. ✅ **SSE transport доступен** — endpoint отвечает (корректная подписка через HTTP header `Last-Event-ID`)
 
-### 13.2. Готово к sandbox deployment
+### 13.2. Строгая проверка (секция 15)
+
+Строгая проверка по stabilization handoff доказала:
+
+1. ✅ **SSE events содержат реальные session_update события** — не только `retry: 3000`
+2. ✅ **Модель отвечает** — первый prompt вернул "OK"
+3. ✅ **Контекст сохраняется** — второй prompt вернул ORBIT-17
+4. ✅ **Long-lived process model** — daemon PID и ACP child PID не изменились между prompt-ами
+5. ✅ **В отчёте нет реальных токенов**
+
+### 13.3. Готово к sandbox deployment
 
 Blaze Runtime готов к развёртыванию в company sandbox infrastructure. Следующий этап:
 
@@ -577,22 +597,78 @@ curl -s -H "Authorization: Bearer local-dev-token" \
   http://127.0.0.1:4170/workspace/preflight | jq .
 
 # 5. Создание сессии
-curl -s -X POST \
+CREATE_RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer local-dev-token" \
   -H "Content-Type: application/json" \
   -d '{}' \
-  http://127.0.0.1:4170/session | jq .
+  http://127.0.0.1:4170/session)
+echo "$CREATE_RESPONSE" | jq .
+export SESSION_ID=$(echo "$CREATE_RESPONSE" | jq -r '.sessionId')
+export CLIENT_ID=$(echo "$CREATE_RESPONSE" | jq -r '.clientId')
 
-# 6. Отправка промпта
+# 6. SSE subscription (ПРАВИЛЬНО: через HTTP header Last-Event-ID)
+# Открываем SSE stream ДО отправки prompt
+curl -N -sS \
+  -H "Authorization: Bearer local-dev-token" \
+  -H "X-Qwen-Client-Id: $CLIENT_ID" \
+  -H "Last-Event-ID: 0" \
+  "http://127.0.0.1:4170/session/$SESSION_ID/events?maxQueued=1024" \
+  > /tmp/blaze-runtime-events.log &
+SSE_PID=$!
+
+# 7. Отправка промпта
 curl -s -X POST \
   -H "Authorization: Bearer local-dev-token" \
   -H "Content-Type: application/json" \
-  -H "X-Qwen-Client-Id: <clientId>" \
+  -H "X-Qwen-Client-Id: $CLIENT_ID" \
   -d '{"prompt":[{"type":"text","text":"Hello!"}]}' \
-  http://127.0.0.1:4170/session/<sessionId>/prompt | jq .
+  "http://127.0.0.1:4170/session/$SESSION_ID/prompt" | jq .
+
+# 8. Проверка SSE events
+sleep 30
+tail -100 /tmp/blaze-runtime-events.log | grep -E "session_update|turn_complete"
+kill $SSE_PID 2>/dev/null || true
 ```
 
-### 14.2. Ссылки на документацию
+### 14.2. Semantic two-prompt test (доказательство контекста)
+
+Для строгой проверки сохранения контекста между prompt-ами:
+
+```bash
+# Prompt 1: Запомнить кодовое слово
+curl -s -X POST \
+  -H "Authorization: Bearer local-dev-token" \
+  -H "Content-Type: application/json" \
+  -H "X-Qwen-Client-Id: $CLIENT_ID" \
+  -d '{"prompt":[{"type":"text","text":"Remember this exact code word for the next message: ORBIT-17. Reply with OK only."}]}' \
+  "http://127.0.0.1:4170/session/$SESSION_ID/prompt" | jq .
+
+# Ждать завершения первого turn (см. SSE events)
+sleep 30
+tail -50 /tmp/blaze-runtime-events.log | grep "turn_complete"
+
+# Prompt 2: Спросить кодовое слово
+curl -s -X POST \
+  -H "Authorization: Bearer local-dev-token" \
+  -H "Content-Type: application/json" \
+  -H "X-Qwen-Client-Id: $CLIENT_ID" \
+  -d '{"prompt":[{"type":"text","text":"What exact code word did I ask you to remember? Answer with the code word only."}]}' \
+  "http://127.0.0.1:4170/session/$SESSION_ID/prompt" | jq .
+
+# Ждать ответа модели
+sleep 30
+tail -100 /tmp/blaze-runtime-events.log | grep "ORBIT-17"
+```
+
+**Критерий успеха:** SSE response второго prompt содержит `ORBIT-17` (модель запомнила кодовое слово из первого prompt).
+
+**Дополнительная проверка:** Daemon PID и ACP child PID не должны измениться между prompt-ами:
+
+```bash
+ps aux | grep blaze-runtime | grep -v grep
+```
+
+### 14.3. Ссылки на документацию
 
 - [Blaze Runtime Sandbox MVP Handoff](./blaze-runtime-sandbox-mvp-handoff.md)
 - [Blaze Runtime Extraction](./blaze-runtime-extraction.md)
