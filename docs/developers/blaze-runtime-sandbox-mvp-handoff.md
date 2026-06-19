@@ -19,6 +19,17 @@ Your task is to reproduce and continue the Blaze Runtime MVP:
 Do not start by refactoring. Do not rename large parts of the repository. First
 prove that the runtime works end-to-end.
 
+Before starting sandbox work, read the local stabilization report:
+
+```text
+docs/developers/blaze-runtime-local-smoke-test.md
+```
+
+That report is the baseline for what "works" means. In particular, a successful
+`POST /session/:id/prompt` response with `promptId` only proves prompt
+admission. It does not prove that the model answered. A real proof must come
+from SSE `session_update` events and from a semantic two-prompt context test.
+
 ## Product Context
 
 The product is **Nessy Blaze**.
@@ -320,6 +331,22 @@ Expected important details:
 - CLI entry should resolve to `BLAZE_RUNTIME_ENTRY`;
 - workspace should match the `--workspace` path.
 
+After health and preflight, follow the strict local smoke test in:
+
+```text
+docs/developers/blaze-runtime-local-smoke-test.md
+```
+
+The important lesson from the local report is:
+
+- `POST /session/:id/prompt` returning `{ promptId, lastEventId }` is only
+  prompt admission;
+- `retry: 3000` on an SSE stream is only the SSE handshake;
+- `Last-Event-ID` must be sent as an HTTP header, not as `?lastEventId=0`;
+- a real model/context proof requires `session_update` events;
+- the semantic context proof is the two-prompt `ORBIT-17` test, where the
+  second prompt returns `ORBIT-17` after assembling streamed text chunks.
+
 ## Real Agent Loop Test
 
 After health/preflight work, test a real prompt through the HTTP/ACP interface.
@@ -336,8 +363,33 @@ The goal is to prove:
 1. The HTTP daemon stays alive.
 2. The ACP child starts as `blaze-runtime --acp`.
 3. The model client uses `dp-auth`.
-4. The first prompt reaches Nestor/Qwen.
-5. A second prompt in the same session keeps context.
+4. The first prompt reaches Nestor/Qwen and produces model output in SSE.
+5. A second prompt in the same session keeps context, proven by the assembled
+   `ORBIT-17` response.
+
+Use this exact proof shape:
+
+1. Create a session with `POST /session`.
+2. Keep the returned `sessionId` and `clientId`.
+3. Open `GET /session/:id/events?maxQueued=1024` before sending prompts.
+4. Send `Last-Event-ID: 0` as an HTTP header on the SSE request.
+5. Send prompt 1:
+
+   ```text
+   Remember this exact code word for the next message: ORBIT-17. Reply with OK only.
+   ```
+
+6. Wait for SSE `session_update` text chunks and a turn completion event.
+7. Send prompt 2 in the same session:
+
+   ```text
+   What exact code word did I ask you to remember? Answer with the code word only.
+   ```
+
+8. Assemble the streamed text chunks from the second answer. Success means the
+   assembled response is `ORBIT-17`. The raw SSE log may contain chunks such as
+   `OR`, `BIT`, `-1`, and `7`, so do not rely on a simple grep for the whole
+   string.
 
 If you cannot quickly find the exact prompt endpoint shape, do not invent it.
 Read the protocol docs and server route code first.
@@ -395,6 +447,21 @@ The external client should call the proxied URL with:
 ```text
 Authorization: Bearer <BLAZE_RUNTIME_TOKEN>
 ```
+
+For SSE calls through the sandbox proxy, use the same event route and headers:
+
+```bash
+curl -N -sS \
+  -H "Authorization: Bearer <BLAZE_RUNTIME_TOKEN>" \
+  -H "X-Qwen-Client-Id: <clientId>" \
+  -H "Last-Event-ID: 0" \
+  "<proxied-runtime-url>/session/<sessionId>/events?maxQueued=1024"
+```
+
+The sandbox proxy must not buffer the SSE stream. Seeing only `retry: 3000`
+means the SSE handshake happened, but it does not prove that model output is
+being delivered. The proof requires `event: session_update` frames after
+prompts.
 
 ## What Not To Do
 
@@ -501,7 +568,11 @@ Do not guess. Collect this information and report it exactly:
    - exposed port list;
    - command/entrypoint used by the sandbox;
    - whether the sandbox allows long-lived processes;
-   - whether the sandbox proxy supports SSE/WebSocket;
+   - whether the sandbox proxy supports long-lived SSE over HTTP;
+   - whether the sandbox proxy buffers response chunks;
+   - raw SSE response headers from `GET /session/:id/events`;
+   - whether `Content-Type: text/event-stream` is preserved through the proxy;
+   - whether `Last-Event-ID: 0` was sent as a header;
    - container logs from startup to failure.
 
 9. If Nestor auth fails:
@@ -514,7 +585,18 @@ Do not guess. Collect this information and report it exactly:
     - confirm whether the same daemon process stayed alive;
     - confirm whether the same ACP child stayed alive;
     - include session ids from responses/events;
-    - include whether the caller used one session or created a new session.
+    - include whether the caller used one session or created a new session;
+    - include the raw SSE frames for both prompts;
+    - include the assembled text chunks from the second prompt;
+    - state whether the assembled second response was exactly `ORBIT-17`.
+
+11. If the prompt route returns `promptId` but no model answer appears:
+    - do not claim success;
+    - include the `POST /session/:id/prompt` response;
+    - include the SSE log from before and after the prompt;
+    - check whether the SSE stream contains only `retry: 3000`;
+    - check daemon logs for `prompt turn completed`, `prompt turn failed`,
+      auth errors, ACP child exits, and Nestor HTTP errors.
 
 ## Expected Success Statement
 
@@ -523,9 +605,14 @@ Only say the MVP works when all of these are true:
 1. `blaze-runtime serve` starts in the target environment.
 2. `/health` returns 401 without token and 200 with token.
 3. `/workspace/preflight` shows sane runtime/auth/entrypoint state.
-4. A real prompt reaches Nestor/Qwen.
-5. A second prompt in the same session preserves context.
-6. The process is long-lived and not recreated per prompt.
+4. The SSE stream is opened through the sandbox proxy with
+   `Last-Event-ID: 0` as an HTTP header.
+5. A real prompt reaches Nestor/Qwen and produces `session_update` model output
+   over SSE.
+6. A second prompt in the same session preserves context, proven by assembling
+   streamed text chunks into `ORBIT-17`.
+7. The daemon process is long-lived and not recreated per prompt.
+8. The ACP child process is long-lived and not recreated per prompt.
 
 If any item is not true, report which item failed and provide the diagnostics
 listed above.
