@@ -657,10 +657,34 @@ curl -s -X POST \
 
 # Ждать ответа модели
 sleep 30
-tail -100 /tmp/blaze-runtime-events.log | grep "ORBIT-17"
+
+# Быстрая ручная проверка: показать последние SSE frames
+tail -150 /tmp/blaze-runtime-events.log
+
+# Важно: модель может стримить ответ чанками, например:
+# {"text":"OR"}
+# {"text":"BIT"}
+# {"text":"-1"}
+# {"text":"7"}
+#
+# Поэтому отсутствие цельной строки ORBIT-17 в raw events.log
+# не обязательно означает ошибку. Нужно собрать assistant text
+# из последовательных text chunks второго prompt и убедиться,
+# что assembled response равен ORBIT-17.
 ```
 
-**Критерий успеха:** SSE response второго prompt содержит `ORBIT-17` (модель запомнила кодовое слово из первого prompt).
+**Критерий успеха:**
+
+- ✅ SSE stream содержит `session_update` events после второго prompt
+- ✅ Text chunks второго prompt при склейке дают `ORBIT-17`
+- ✅ Daemon PID не изменился
+- ✅ ACP child PID не изменился
+
+**Признаки неуспеха:**
+
+- ❌ Есть только `retry: 3000`, нет `session_update` events
+- ❌ Второй prompt не дает `ORBIT-17` после сборки чанков
+- ❌ Daemon или ACP child перезапустился между prompt-ами
 
 **Дополнительная проверка:** Daemon PID и ACP child PID не должны измениться между prompt-ами:
 
@@ -730,6 +754,8 @@ id: 10, data: {"text":"7"}
 ```
 
 ✅ **Модель запомнила: OR + BIT + -1 + 7 = ORBIT-17**
+
+> **Примечание:** Так как SSE доставляет model output потоковыми text chunks, проверять нужно assembled response, а не только наличие цельной строки `ORBIT-17` в raw log.
 
 ### 15.3. Long-lived процессы
 
