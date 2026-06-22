@@ -23,6 +23,25 @@ Blaze Runtime Sandbox v0.18.7 успешно верифицирован. Все 
 
 **Корневая проблема v0.18.6 исправлена:** ML Core автоматически добавляет `NESSY_CLI_DP_AUTH_TOKEN=$NESTOR_TOKEN` (literal строка, не JWT). Entrypoint v0.18.7 теперь проверяет валидность JWT (3 части) перед пропуском exchange.
 
+### 1.1. Codex Validation Notes
+
+Codex проверил отчёт после публикации и считает runtime-валидацию успешной:
+
+- `preflight` показывает `auth.source: "dp-auth"` и `presentVar: "BLAZE_DP_TOKEN"`;
+- `POST /session` вернул `sessionId` и `clientId`;
+- SSE stream открылся и отдал `session_update`;
+- recall test в той же session собрал `"ORBIT-17"` из streamed chunks.
+
+Две правки внесены в сам отчёт:
+
+- реальные DP/runtime токены заменены на `<redacted-...>`;
+- формат `dp_auth_creds.json` исправлен: `expiresAt` хранится как epoch
+  milliseconds number, не ISO string.
+
+Для будущих повторений build-секция ниже должна считаться минимальной записью.
+Перед публикацией обязательно выполнять `npm run prepare:package` и grep markers
+из runbook, даже если отчёт с runtime-проверкой уже успешен.
+
 ---
 
 ## 2. Сборка npm Пакета
@@ -46,6 +65,7 @@ fix(blaze-runtime): ignore ML Core Nestor placeholder
 npm install
 npm run build
 npm run bundle
+npm run prepare:package
 ```
 
 **Результат:**
@@ -53,6 +73,15 @@ npm run bundle
 - `dist/cli.js` — bundled CLI
 - `packages/core/dist/` — compiled core
 - `@art/blaze-runtime@0.18.7` готов к публикации
+
+Перед publish должны проходить freshness checks:
+
+```bash
+node -e "const p=require('./dist/package.json'); console.log(p.name, p.version, p.bin)"
+grep -R "Use Nestor / DP auth" dist
+grep -R "BLAZE_RUNTIME_AUTH_TYPE" dist
+grep -R '\$NESTOR_TOKEN' dist
+```
 
 ### 2.3. Публикация в Artifactory
 
@@ -98,13 +127,13 @@ Sandbox запущен через ML Core Sandbox API со следующими 
 | **Job**                 | `sandbox-erb4pb`                                                        |
 | **Port**                | `4170`                                                                  |
 | **DP_TOKEN**            | `<redacted>` (Ory access token)                                         |
-| **BLAZE_RUNTIME_TOKEN** | `blaze-runtime-token-1782143564`                                        |
+| **BLAZE_RUNTIME_TOKEN** | `<redacted-runtime-token>`                                        |
 
 ### 4.2. Environment Variables
 
 ```bash
 DP_TOKEN=<redacted-dp-token>
-BLAZE_RUNTIME_TOKEN=blaze-runtime-token-1782143564
+BLAZE_RUNTIME_TOKEN=<redacted-runtime-token>
 NESSY_CLI_DP_AUTH_TOKEN=$NESTOR_TOKEN  # ← ML Core добавляет автоматически
 ```
 
@@ -162,7 +191,10 @@ curl -X POST \
 ```json
 {
   "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "expiresAt": "2026-06-22T16:53:47.842Z"
+  "expiresAt": 1782147227842,
+  "username": "...",
+  "userId": "...",
+  "cachedModels": []
 }
 ```
 
@@ -174,8 +206,8 @@ curl -X POST \
 
 ```bash
 export RUNTIME_URL="https://mlcore.t-tech.team/tools/jobs-proxy/projects/art/jobs/sandbox-erb4pb/ports/4170/"
-export DP_TOKEN="ory_at_81vKSxQ1SkUQp-9vLTuxFHL0Bl8Um9n0T67QVrbxxzQ.XP0UD14YwFits7SsCL7iDox1WHqOocSlzxY3NT9kWms"
-export RUNTIME_TOKEN="blaze-runtime-token-1782143564"
+export DP_TOKEN="<redacted-dp-token>"
+export RUNTIME_TOKEN="<redacted-runtime-token>"
 ```
 
 ### 6.2. Шаг 1: Health Check

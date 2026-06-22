@@ -70,7 +70,7 @@ fi
 
 ```bash
 DP_TOKEN=<redacted-dp-token>
-BLAZE_RUNTIME_TOKEN=blaze-runtime-token-1782142045
+BLAZE_RUNTIME_TOKEN=<redacted-runtime-token>
 NESSY_CLI_DP_AUTH_TOKEN=$NESTOR_TOKEN  # ← ЭТО НЕ JWT!
 ```
 
