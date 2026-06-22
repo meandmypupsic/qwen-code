@@ -170,6 +170,15 @@ with token    -> HTTP 200 {"status":"ok"}
 
 ## 4. Publish the Docker image
 
+Authenticate Docker through DP before pushing to Artifactory. Do not paste
+`ory_at_...` tokens into Docker manually; use the service account flow:
+
+```bash
+dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
+```
+
+Then push the image:
+
 ```bash
 docker push "$IMAGE"
 ```
