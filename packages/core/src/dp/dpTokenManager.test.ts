@@ -24,6 +24,7 @@ describe('dpTokenManager', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     if (tempDir) {
       fs.rmSync(tempDir, { recursive: true, force: true });
       tempDir = undefined;
@@ -73,5 +74,56 @@ describe('dpTokenManager', () => {
     expect(cached?.source).toBe('cache');
     expect(cached?.jwt).toBe(jwt);
     expect(hasDpAuthCredentials()).toBe(true);
+  });
+
+  it('ignores stale non-JWT explicit apiKey when BLAZE_DP_TOKEN can be exchanged', async () => {
+    useTempCredentialsPath();
+    const jwt = fakeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      sub: 'env-token-user',
+    });
+    vi.stubEnv('BLAZE_DP_TOKEN', 'ory_at_from_env');
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer ory_at_from_env',
+      });
+      return new Response(JSON.stringify({ jwt }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const credentials = await resolveDpCredentials('stale-openai-key');
+
+    expect(credentials.jwt).toBe(jwt);
+    expect(credentials.source).toBe('dp-token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('can exchange an explicit raw DP token when it looks like an Ory access token', async () => {
+    useTempCredentialsPath();
+    const jwt = fakeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      sub: 'explicit-token-user',
+    });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer ory_at_explicit',
+      });
+      return new Response(JSON.stringify({ jwt }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const credentials = await resolveDpCredentials('ory_at_explicit');
+
+    expect(credentials.jwt).toBe(jwt);
+    expect(credentials.source).toBe('dp-token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a non-JWT explicit apiKey when no DP token, JWT, or cache exists', async () => {
+    useTempCredentialsPath();
+
+    await expect(resolveDpCredentials('stale-openai-key')).rejects.toThrow(
+      'DP auth received a non-JWT apiKey value',
+    );
   });
 });

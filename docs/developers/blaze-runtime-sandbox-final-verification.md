@@ -35,6 +35,35 @@ Rules:
 - `DP_TOKEN` and `RUNTIME_TOKEN` are different security layers. Do not make them
   equal just to simplify curl commands.
 - `RUNTIME_URL` must be the proxy URL for port `4170`.
+- The sandbox image must be built from a version that contains the Nestor auth
+  fix. The expected fixed version is `@art/blaze-runtime@0.18.5` or newer.
+
+## 0.1. Expected Sandbox Auth Boot
+
+The sandbox must be started with `BLAZE_DP_TOKEN` or `DP_TOKEN` in the
+environment. The entrypoint must:
+
+1. Exchange that raw DP/Ory token against Nestor:
+
+   ```text
+   POST https://code-completion-nestor.tcsbank.ru/api/v2/token
+   Authorization: Bearer <BLAZE_DP_TOKEN>
+   ```
+
+2. Write the returned `.jwt` to:
+
+   ```text
+   /root/.blaze-runtime/dp_auth_creds.json
+   /root/.nessy/dp_auth_creds.json
+   ```
+
+3. Export `DP_AUTH=true`.
+4. Start `blaze-runtime serve`.
+5. Spawn the ACP child as `blaze-runtime --acp --auth-type=dp-auth`.
+
+If the sandbox log does not contain `Nestor credentials cache prepared`, session
+creation will probably fail. Stop and inspect the entrypoint log before testing
+prompts.
 
 ## 1. Health
 
@@ -89,6 +118,10 @@ Expected:
 - JSON is valid.
 - Runtime is initialized.
 - Auth/provider/model state is sane for `dp-auth` / Nestor.
+- The auth cell should have `detail.source: "dp-auth"`.
+- The auth cell should not say `No auth method configured`.
+- If `detail.presentVar` is shown, it should usually be `BLAZE_DP_TOKEN`,
+  `DP_TOKEN`, `BLAZE_DP_JWT`, or `NESSY_CLI_DP_AUTH_TOKEN`.
 - There is no obvious startup/auth error.
 
 Stop if preflight shows broken runtime state. Include
@@ -237,6 +270,8 @@ Only say "sandbox MVP verification passed" when all items are true:
 1. `/health` with only DP header returns runtime `401`.
 2. `/health` with DP + runtime headers returns `200`.
 3. `/workspace/preflight` returns sane initialized runtime state.
+   - `auth.detail.source` is `dp-auth`.
+   - It does not report `No auth method configured`.
 4. `POST /session` returns non-empty `sessionId` and `clientId`.
 5. SSE is opened before prompts with `Last-Event-ID: 0` as an HTTP header.
 6. Prompt 1 returns `promptId`, and SSE later contains `session_update`.

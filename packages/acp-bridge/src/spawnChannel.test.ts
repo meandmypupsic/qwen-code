@@ -32,6 +32,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildAcpCliArgs,
   createStderrForwarder,
   getAcpMemoryArgs,
   scrubChildEnv,
@@ -123,6 +124,28 @@ describe('createStderrForwarder', () => {
     forwarder.onData('line1\n');
     expect(stderrSpy).toHaveBeenCalledWith('[no-cb] line1\n');
     stderrSpy.mockRestore();
+  });
+});
+
+describe('buildAcpCliArgs', () => {
+  it('forces dp-auth when DP_AUTH compatibility flag is set', () => {
+    expect(buildAcpCliArgs({ DP_AUTH: 'true' })).toEqual([
+      '--auth-type=dp-auth',
+    ]);
+  });
+
+  it('treats DP_AUTH=0 and DP_AUTH=false as disabled', () => {
+    expect(buildAcpCliArgs({ DP_AUTH: '0' })).toEqual([]);
+    expect(buildAcpCliArgs({ DP_AUTH: 'false' })).toEqual([]);
+  });
+
+  it('lets BLAZE_RUNTIME_AUTH_TYPE override the DP_AUTH compatibility flag', () => {
+    expect(
+      buildAcpCliArgs({
+        BLAZE_RUNTIME_AUTH_TYPE: 'openai',
+        DP_AUTH: 'true',
+      }),
+    ).toEqual(['--auth-type=openai']);
   });
 });
 

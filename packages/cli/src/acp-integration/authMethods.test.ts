@@ -16,6 +16,7 @@ describe('ACP auth methods', () => {
     const authMethods = buildAuthMethods();
 
     expect(authMethods.map((method) => method.id)).toEqual([
+      AuthType.DP_AUTH,
       AuthType.USE_OPENAI,
     ]);
   });
@@ -24,7 +25,16 @@ describe('ACP auth methods', () => {
     const authMethods = pickAuthMethodsForAuthRequired('qwen-oauth');
 
     expect(authMethods.map((method) => method.id)).toEqual([
+      AuthType.DP_AUTH,
       AuthType.USE_OPENAI,
+    ]);
+  });
+
+  it('returns only DP auth when DP auth is already selected', () => {
+    const authMethods = pickAuthMethodsForAuthRequired(AuthType.DP_AUTH);
+
+    expect(authMethods.map((method) => method.id)).toEqual([
+      AuthType.DP_AUTH,
     ]);
   });
 });

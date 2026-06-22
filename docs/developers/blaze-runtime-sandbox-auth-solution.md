@@ -4,7 +4,7 @@
 Blaze Runtime Sandbox через ML Core Sandbox API.
 
 **Дата решения:** 2026-06-22  
-**Версия:** @art/blaze-runtime@0.18.4
+**Версия:** @art/blaze-runtime@0.18.5
 
 ---
 
@@ -20,6 +20,18 @@ Blaze Runtime Sandbox через ML Core Sandbox API.
 - Добавлена поддержка заголовка `X-Blaze-Runtime-Authorization`
 - Обновлён Dockerfile для установки v0.18.4
 - Обновлена документация с примерами запуска
+
+**Критические изменения в v0.18.5:**
+
+- `/entrypoint.sh` обменивает `BLAZE_DP_TOKEN`/`DP_TOKEN` на Nestor JWT через
+  `POST https://code-completion-nestor.tcsbank.ru/api/v2/token`
+- entrypoint пишет Nestor JWT cache в `/root/.blaze-runtime/dp_auth_creds.json`
+  и legacy mirror `/root/.nessy/dp_auth_creds.json`
+- entrypoint выставляет `DP_AUTH=true`
+- spawned ACP child получает DP/Nestor env явно и стартует как
+  `blaze-runtime --acp --auth-type=dp-auth`
+- DP runtime больше не пытается декодировать сырой `ory_at_...` как JWT, если
+  этот токен попал в generic `settings.security.auth.apiKey`
 
 ---
 
@@ -58,6 +70,40 @@ curl -H "Authorization: Bearer $DP_TOKEN" \
 | **DP Token** (`ory_at_...`) | Доступ к ML Core Proxy             | ML Core / DevPlatform |
 | **BLAZE_RUNTIME_TOKEN**     | Доступ к blaze-runtime HTTP daemon | blaze-runtime         |
 | **BLAZE_DP_TOKEN**          | Обмен на JWT для Nestor API        | Nestor (через DP)     |
+
+### Симптом 4: Preflight warning и `Invalid JWT: expected 3 parts`
+
+В образе `0.18.4` health и proxy headers уже работали, но session creation
+падал:
+
+```json
+{
+  "error": "Authentication required: Authentication failed: Invalid JWT: expected 3 parts",
+  "data": {
+    "authMethods": [{ "id": "openai", "name": "Use OpenAI API key" }]
+  }
+}
+```
+
+Preflight при этом мог показывать:
+
+```json
+{
+  "kind": "auth",
+  "status": "warning",
+  "error": "No auth method configured.",
+  "detail": { "source": "none", "hasToken": false }
+}
+```
+
+**Причины:**
+
+1. ACP child не был жёстко запущен в `dp-auth`.
+2. В списке ACP auth methods был только `openai`, поэтому отчёт сбивал агента.
+3. DP runtime мог принять сырой `ory_at_...` из generic apiKey за JWT и пытался
+   декодировать его как JWT.
+
+**Исправление:** использовать `@art/blaze-runtime@0.18.5` или новее.
 
 ---
 
@@ -109,7 +155,7 @@ ML Core sandbox не запускает Docker `ENTRYPOINT` автоматиче
   "project": "art",
   "spec": {
     "flavor": "2cpu-4ram",
-    "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.4",
+    "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5",
     "containerPorts": [
       {
         "name": "http",
@@ -172,7 +218,7 @@ curl -s -X POST \
     "project": "art",
     "spec": {
       "flavor": "2cpu-4ram",
-      "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.4",
+      "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5",
       "containerPorts": [{"port": 4170, "name": "http"}],
       "environment": {
         "BLAZE_RUNTIME_TOKEN": "'"$RUNTIME_TOKEN"'",
@@ -264,8 +310,18 @@ CLIENT_ID=$(echo "$CREATE_RESPONSE" | jq -r '.clientId')
 ┌─────────────────────────────────────────────────────────┐
 │           blaze-runtime daemon (порт 4170)              │
 │  - Проверяет X-Blaze-Runtime-Authorization              │
-│  - Использует BLAZE_DP_TOKEN для обмена на Nestor JWT   │
+│  - Стартует один ACP child process                      │
+│  - Передаёт ему DP/Nestor env                           │
 │  - Обрабатывает запросы                                 │
+└─────────────────────────────────────────────────────────┘
+       │
+       │ 3. blaze-runtime --acp --auth-type=dp-auth
+       ▼
+┌─────────────────────────────────────────────────────────┐
+│              ACP child / agent runtime                  │
+│  - Читает /root/.blaze-runtime/dp_auth_creds.json       │
+│  - Ходит в Nestor OpenAI-compatible API                 │
+│  - Выполняет tools и ведёт session context              │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -335,6 +391,77 @@ ARG BLAZE_RUNTIME_VERSION=0.18.4
 BLAZE_RUNTIME_TOKEN=<runtime-bearer-token>
 ```
 
+## Изменения в v0.18.5
+
+### deploy/sandbox/blaze-runtime/entrypoint.sh
+
+Entrypoint теперь делает то, что раньше делал старый `nessy-cli`
+`deploy/async/entrypoint.sh`:
+
+```text
+1. Берёт BLAZE_DP_TOKEN или DP_TOKEN.
+2. Делает POST https://code-completion-nestor.tcsbank.ru/api/v2/token.
+3. Достаёт поле .jwt.
+4. Пишет:
+   /root/.blaze-runtime/dp_auth_creds.json
+   /root/.nessy/dp_auth_creds.json
+5. Экспортирует DP_AUTH=true.
+6. Запускает blaze-runtime serve.
+```
+
+Если передан `BLAZE_DP_JWT` или `NESSY_CLI_DP_AUTH_TOKEN`, entrypoint не делает
+token exchange: это уже delegated JWT flow.
+
+### packages/acp-bridge/src/spawnChannel.ts
+
+Если в окружении есть `DP_AUTH=true`, spawned ACP child стартует так:
+
+```text
+blaze-runtime --acp --auth-type=dp-auth
+```
+
+Это важно, потому что `--auth-type` имеет приоритет над сохранённым
+`settings.security.auth.selectedType`.
+
+### packages/cli/src/serve/runQwenServe.ts
+
+Daemon явно прокидывает в ACP child:
+
+```text
+BLAZE_DP_TOKEN
+DP_TOKEN
+BLAZE_DP_JWT
+NESSY_CLI_DP_AUTH_TOKEN
+BLAZE_DP_CREDENTIALS_PATH
+BLAZE_RUNTIME_HOME
+BLAZE_NESTOR_SERVER_URL
+BLAZE_NESTOR_BASE_URL
+NESTOR_BASE_URL
+BLAZE_NESTOR_MODEL
+NESTOR_MODEL
+DP_AUTH
+```
+
+### packages/core/src/dp/dpTokenManager.ts
+
+DP runtime больше не считает любую `apiKey` строку JWT. Если туда случайно
+попал сырой `ory_at_...`, runtime обменивает его как DP access token или берёт
+настоящий DP token из env.
+
+### Ожидаемый preflight после v0.18.5
+
+```json
+{
+  "kind": "auth",
+  "locality": "acp",
+  "status": "ok",
+  "detail": {
+    "source": "dp-auth",
+    "hasToken": true
+  }
+}
+```
+
 ---
 
 ## Чеклист для запуска
@@ -348,6 +475,8 @@ BLAZE_RUNTIME_TOKEN=<runtime-bearer-token>
 - [ ] Sandbox перешёл в статус `RUNNING`
 - [ ] Health check возвращает 200 с обоими заголовками
 - [ ] Preflight возвращает `initialized: true`
+- [ ] Preflight auth cell показывает `detail.source: "dp-auth"`
+- [ ] Preflight auth cell не показывает `No auth method configured`
 - [ ] Выполнен полный финальный runbook:
       `docs/developers/blaze-runtime-sandbox-final-verification.md`
 - [ ] SSE после prompt содержит реальные `session_update`, а второй prompt в
@@ -364,6 +493,8 @@ BLAZE_RUNTIME_TOKEN=<runtime-bearer-token>
 | `401 Unauthorized` (daemon) | Невалидный runtime токен | Проверить `BLAZE_RUNTIME_TOKEN` в env          |
 | `null` proxy URL            | Нет `containerPorts`     | Добавить `[{port: 4170, name: "http"}]`        |
 | `Invalid port name`         | Имя порта > 16 символов  | Использовать `"http"` вместо `"blaze-runtime"` |
+| `No auth method configured` | Старый образ или ACP child не в `dp-auth` | Использовать `0.18.5+`, проверить `DP_AUTH=true` |
+| `Invalid JWT: expected 3 parts` | Сырой `ory_at_...` был принят за JWT | Использовать `0.18.5+`, передавать raw DP token в `BLAZE_DP_TOKEN` |
 
 ---
 

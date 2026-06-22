@@ -78,7 +78,7 @@ npm run prepare:package
 
 # Проверка dist/package.json
 node -e "const p=require('./dist/package.json'); console.log(p.name, p.version, p.bin)"
-# Ожидаемый вывод: @art/blaze-runtime 0.18.3 { qwen: 'cli-entry.js', 'blaze-runtime': 'blaze-runtime-entry.js' }
+# Ожидаемый вывод: @art/blaze-runtime 0.18.5 { qwen: 'cli-entry.js', 'blaze-runtime': 'blaze-runtime-entry.js' }
 ```
 
 ### 2. Публикация npm в Artifactory
@@ -92,7 +92,7 @@ cd dist
 npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 
 # Проверка
-npm view @art/blaze-runtime@0.18.3 --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+npm view @art/blaze-runtime@0.18.5 --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 ```
 
 ### 3. Сборка Docker образа
@@ -101,7 +101,7 @@ npm view @art/blaze-runtime@0.18.3 --registry="https://artifactory.tcsbank.ru/ar
 cd /Users/s.salnikov/Documents/Developers/qwen-code
 
 export BLAZE_RUNTIME_PACKAGE="@art/blaze-runtime"
-export BLAZE_RUNTIME_VERSION="0.18.3"
+export BLAZE_RUNTIME_VERSION="0.18.5"
 export NPM_INSTALL_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/"
 export IMAGE="docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:${BLAZE_RUNTIME_VERSION}"
 
@@ -138,7 +138,7 @@ docker run --rm \
   -e BLAZE_RUNTIME_TOKEN="local-dev-token" \
   -e BLAZE_DP_TOKEN="<dp-token>" \
   -p 4170:4170 \
-  docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.3
+  docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5
 
 # В другом терминале: health check
 curl -i http://127.0.0.1:4170/health
@@ -167,9 +167,41 @@ curl -i -H "Authorization: Bearer local-dev-token" http://127.0.0.1:4170/health
 
 - `BLAZE_RUNTIME_TOKEN` — bearer токен для HTTP daemon
 - `BLAZE_DP_TOKEN` или `DP_TOKEN` — токен для обмена на Nestor JWT
+- `BLAZE_DP_CREDENTIALS_PATH` — опционально, путь к cache; по умолчанию
+  `/root/.blaze-runtime/dp_auth_creds.json`
+- `BLAZE_NESTOR_SERVER_URL` — опционально, по умолчанию
+  `https://code-completion-nestor.tcsbank.ru`
+- `DP_AUTH=true` — выставляется entrypoint-ом автоматически, чтобы ACP child
+  стартовал с `--auth-type=dp-auth`
 - `BLAZE_RUNTIME_HOST=0.0.0.0`
 - `BLAZE_RUNTIME_PORT=4170`
 - `BLAZE_RUNTIME_WORKSPACE=/workspace`
+
+## Важно про v0.18.5 и Nestor auth
+
+Не публикуй этот фикс как `0.18.4`: такой образ уже использовался в отчёте и
+падал на создании session с ошибкой `Invalid JWT: expected 3 parts`.
+
+Для этого этапа ожидаемый артефакт:
+
+```text
+npm:    @art/blaze-runtime@0.18.5
+docker: docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5
+```
+
+При запуске контейнера entrypoint должен вывести:
+
+```text
+[blaze-runtime-entrypoint] exchanging DP token for Nestor JWT
+[blaze-runtime-entrypoint] Nestor credentials cache prepared
+```
+
+Если этих строк нет, проверь:
+
+- передан ли `BLAZE_DP_TOKEN` или `DP_TOKEN`;
+- доступен ли `https://code-completion-nestor.tcsbank.ru/api/v2/token`;
+- не передан ли вместо raw DP token уже истёкший/невалидный токен;
+- не используется ли старый Docker image tag.
 
 ## Частые ошибки
 
@@ -266,7 +298,7 @@ error from registry: forbidden action with repository
 
 ```bash
 dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
-docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.3
+docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5
 ```
 
 ### Итоговый рабочий алгоритм
@@ -278,7 +310,7 @@ cd dist && npm publish --registry="https://artifactory.tcsbank.ru/artifactory/ap
 
 # 2. Docker публикация
 dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
-docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.3
+docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5
 ```
 
 **Важно:** Не пытаться использовать Ory токены напрямую. Всегда использовать dp CLI

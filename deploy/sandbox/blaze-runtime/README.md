@@ -255,8 +255,21 @@ X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>
 Do not set `BLAZE_RUNTIME_TOKEN` equal to the DP/Ory token just to make the
 headers line up. These are different security layers.
 
-`BLAZE_DP_TOKEN` is exchanged by Blaze Runtime against Nestor. The entrypoint
-also accepts legacy `DP_TOKEN` and maps it to `BLAZE_DP_TOKEN`.
+`BLAZE_DP_TOKEN` is exchanged by the sandbox entrypoint against Nestor:
+
+```text
+POST https://code-completion-nestor.tcsbank.ru/api/v2/token
+Authorization: Bearer <BLAZE_DP_TOKEN>
+```
+
+The entrypoint writes the returned Nestor JWT to
+`/root/.blaze-runtime/dp_auth_creds.json`, mirrors it to the legacy
+`/root/.nessy/dp_auth_creds.json`, exports `DP_AUTH=true`, and the spawned ACP
+child starts with `--auth-type=dp-auth`. The runtime also accepts legacy
+`DP_TOKEN` and maps it to `BLAZE_DP_TOKEN`.
+
+If a delegated JWT is already available, pass it as `BLAZE_DP_JWT` or
+`NESSY_CLI_DP_AUTH_TOKEN`; in that case the entrypoint skips DP token exchange.
 
 ## 6. Verify through the sandbox proxy URL
 
@@ -389,7 +402,7 @@ Do not:
 - run one `ExecuteCommand` per prompt;
 - assume Docker `ENTRYPOINT` starts automatically in ML Core sandbox;
 - reuse the DP/Ory token as `BLAZE_RUNTIME_TOKEN`;
-- manually create `~/.nessy/dp_auth_creds.json` in entrypoint;
+- hand-edit `~/.nessy/dp_auth_creds.json`; the entrypoint creates the cache;
 - print real tokens;
 - claim success from `promptId` alone;
 - claim success from `retry: 3000` alone.

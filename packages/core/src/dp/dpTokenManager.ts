@@ -29,6 +29,26 @@ export interface ResolvedDpCredentials extends DpCredentials {
 let cachedCredentials: DpCredentials | null = null;
 let cachedCredentialsPath: string | null = null;
 
+function normalizeToken(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function isJwtLike(value: string): boolean {
+  return value.split('.').length === 3;
+}
+
+function isLikelyDpAccessToken(value: string): boolean {
+  return value.startsWith('ory_at_');
+}
+
+function getEnvDpToken(): string | undefined {
+  return (
+    normalizeToken(process.env[BLAZE_DP_TOKEN_ENV]) ||
+    normalizeToken(process.env[LEGACY_DP_TOKEN_ENV])
+  );
+}
+
 function isValid(
   credentials: DpCredentials | null,
 ): credentials is DpCredentials {
@@ -141,16 +161,30 @@ export async function resolveDpCredentials(
   explicitJwt?: string,
   options: { forceExchange?: boolean } = {},
 ): Promise<ResolvedDpCredentials> {
-  if (explicitJwt) {
-    return credentialsFromJwt(explicitJwt, 'explicit-jwt');
+  const explicitCredential = normalizeToken(explicitJwt);
+  let explicitDpToken: string | undefined;
+  if (explicitCredential) {
+    if (isJwtLike(explicitCredential)) {
+      return credentialsFromJwt(explicitCredential, 'explicit-jwt');
+    }
+
+    // DP auth can inherit a generic settings.security.auth.apiKey value from
+    // older OpenAI-compatible configuration. If that value is a raw DP access
+    // token, exchange it; otherwise ignore it while env/cache credentials are
+    // still available. This prevents treating `ory_at_...` as a JWT.
+    if (isLikelyDpAccessToken(explicitCredential)) {
+      explicitDpToken = explicitCredential;
+    }
   }
 
-  const envJwt = process.env[BLAZE_DP_JWT_ENV];
+  const envJwt = normalizeToken(process.env[BLAZE_DP_JWT_ENV]);
   if (envJwt) {
     return credentialsFromJwt(envJwt, 'env-jwt', BLAZE_DP_JWT_ENV);
   }
 
-  const legacyEnvJwt = process.env[LEGACY_NESSY_DP_AUTH_TOKEN_ENV];
+  const legacyEnvJwt = normalizeToken(
+    process.env[LEGACY_NESSY_DP_AUTH_TOKEN_ENV],
+  );
   if (legacyEnvJwt) {
     return credentialsFromJwt(
       legacyEnvJwt,
@@ -166,13 +200,20 @@ export async function resolveDpCredentials(
     }
   }
 
-  const dpToken =
-    process.env[BLAZE_DP_TOKEN_ENV] || process.env[LEGACY_DP_TOKEN_ENV];
+  const dpToken = getEnvDpToken() || explicitDpToken;
   if (dpToken) {
     const response = await exchangeDpToken(dpToken);
     const credentials = credentialsFromJwt(response.jwt, 'dp-token');
     saveCredentials(credentials);
     return credentials;
+  }
+
+  if (explicitCredential) {
+    throw new Error(
+      'DP auth received a non-JWT apiKey value. Pass raw DP access tokens via ' +
+        `${BLAZE_DP_TOKEN_ENV}/${LEGACY_DP_TOKEN_ENV}, or delegated JWTs via ` +
+        `${BLAZE_DP_JWT_ENV}/${LEGACY_NESSY_DP_AUTH_TOKEN_ENV}.`,
+    );
   }
 
   throw new Error(

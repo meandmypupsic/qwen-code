@@ -69,6 +69,12 @@ describe('modelConfigUtils', () => {
       expect(getAuthTypeFromEnv()).toBe(AuthType.QWEN_OAUTH);
     });
 
+    it('should return DP_AUTH when DP_AUTH compatibility flag is set', () => {
+      process.env['DP_AUTH'] = 'true';
+
+      expect(getAuthTypeFromEnv()).toBe(AuthType.DP_AUTH);
+    });
+
     it('should return USE_GEMINI when Gemini env vars are set', () => {
       process.env['GEMINI_API_KEY'] = 'test-key';
       process.env['GEMINI_MODEL'] = 'gemini-pro';

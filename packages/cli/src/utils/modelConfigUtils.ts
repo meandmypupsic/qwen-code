@@ -105,7 +105,8 @@ export function getAuthTypeFromEnv(): AuthType | undefined {
     process.env['BLAZE_DP_TOKEN'] ||
     process.env['DP_TOKEN'] ||
     process.env['BLAZE_DP_JWT'] ||
-    process.env['NESSY_CLI_DP_AUTH_TOKEN']
+    process.env['NESSY_CLI_DP_AUTH_TOKEN'] ||
+    process.env['DP_AUTH']
   ) {
     return AuthType.DP_AUTH;
   }

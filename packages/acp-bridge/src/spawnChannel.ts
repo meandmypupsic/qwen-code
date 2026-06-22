@@ -16,6 +16,8 @@ const BLAZE_RUNTIME_ENTRY_ENV = 'BLAZE_RUNTIME_ENTRY';
 const QWEN_CLI_ENTRY_ENV = 'QWEN_CLI_ENTRY';
 const BLAZE_RUNTIME_TOKEN_ENV = 'BLAZE_RUNTIME_TOKEN';
 const QWEN_SERVER_TOKEN_ENV = 'QWEN_SERVER_TOKEN';
+const BLAZE_RUNTIME_AUTH_TYPE_ENV = 'BLAZE_RUNTIME_AUTH_TYPE';
+const DP_AUTH_ENV = 'DP_AUTH';
 
 let cachedMemoryArgs: string[] | undefined;
 export function getAcpMemoryArgs(): string[] {
@@ -36,6 +38,23 @@ export function getAcpMemoryArgs(): string[] {
     '--expose-gc',
   ];
   return cachedMemoryArgs;
+}
+
+function isTruthyEnvFlag(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== '0' && normalized !== 'false';
+}
+
+export function buildAcpCliArgs(env: NodeJS.ProcessEnv): string[] {
+  const explicitAuthType = env[BLAZE_RUNTIME_AUTH_TYPE_ENV]?.trim();
+  if (explicitAuthType) {
+    return [`--auth-type=${explicitAuthType}`];
+  }
+  if (isTruthyEnvFlag(env[DP_AUTH_ENV])) {
+    return ['--auth-type=dp-auth'];
+  }
+  return [];
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -133,12 +152,13 @@ export function createSpawnChannelFactory(
     childEnv['QWEN_CODE_NO_RELAUNCH'] = 'true';
 
     const memoryArgs = getAcpMemoryArgs();
+    const acpCliArgs = buildAcpCliArgs(childEnv);
     const execArgs = process.execArgv.filter(
       (a) => !/^--inspect(-brk)?($|=)/.test(a),
     );
     const child = spawn(
       process.execPath,
-      [...execArgs, ...memoryArgs, cliEntry, '--acp'],
+      [...execArgs, ...memoryArgs, cliEntry, '--acp', ...acpCliArgs],
       {
         cwd: workspaceCwd,
         stdio: ['pipe', 'pipe', 'pipe'],

@@ -37,8 +37,80 @@ export BLAZE_RUNTIME_PORT="${BLAZE_RUNTIME_PORT:-4170}"
 export BLAZE_RUNTIME_HOST="${BLAZE_RUNTIME_HOST:-0.0.0.0}"
 export BLAZE_RUNTIME_WORKSPACE="${BLAZE_RUNTIME_WORKSPACE:-/workspace}"
 export BLAZE_RUNTIME_PACKAGE="${BLAZE_RUNTIME_PACKAGE:-@art/blaze-runtime}"
+export BLAZE_RUNTIME_HOME="${BLAZE_RUNTIME_HOME:-/root/.blaze-runtime}"
+export BLAZE_DP_CREDENTIALS_PATH="${BLAZE_DP_CREDENTIALS_PATH:-${BLAZE_RUNTIME_HOME}/dp_auth_creds.json}"
+export BLAZE_NESTOR_SERVER_URL="${BLAZE_NESTOR_SERVER_URL:-https://code-completion-nestor.tcsbank.ru}"
+export DP_AUTH="${DP_AUTH:-true}"
 
-mkdir -p "$BLAZE_RUNTIME_WORKSPACE" /root/.blaze-runtime
+mkdir -p "$BLAZE_RUNTIME_WORKSPACE" "$BLAZE_RUNTIME_HOME" /root/.nessy
+
+prepare_nestor_credentials() {
+  if [ -n "${BLAZE_DP_JWT:-}" ] || [ -n "${NESSY_CLI_DP_AUTH_TOKEN:-}" ]; then
+    log "delegated Nestor JWT env detected, skipping DP token exchange"
+    return
+  fi
+
+  if [ -z "${BLAZE_DP_TOKEN:-}" ]; then
+    return
+  fi
+
+  local token_url="${BLAZE_NESTOR_SERVER_URL%/}/api/v2/token"
+  local response_file="/tmp/blaze-runtime-nestor-token.json"
+
+  log "exchanging DP token for Nestor JWT"
+  if ! curl --fail --silent --show-error --request POST \
+    --url "$token_url" \
+    --header 'Accept: application/json' \
+    --header "Authorization: Bearer ${BLAZE_DP_TOKEN}" \
+    --header 'Content-Type: application/json' \
+    --data '{}' >"$response_file"; then
+    fail "Nestor token exchange failed at ${token_url}. Check DP token validity and sandbox egress to Nestor."
+  fi
+
+  local jwt
+  jwt="$(jq -r '.jwt // empty' "$response_file")"
+  if [ -z "$jwt" ] || [ "$(printf '%s' "$jwt" | awk -F. '{print NF}')" -ne 3 ]; then
+    fail "Nestor token exchange response did not contain a valid jwt field"
+  fi
+
+  local jwt_payload
+  jwt_payload="$(printf '%s' "$jwt" | cut -d. -f2 | tr -- '-_' '+/')"
+  case $((${#jwt_payload} % 4)) in
+    2) jwt_payload="${jwt_payload}==" ;;
+    3) jwt_payload="${jwt_payload}=" ;;
+  esac
+
+  local decoded_payload
+  decoded_payload="$(printf '%s' "$jwt_payload" | base64 -d 2>/dev/null || printf '{}')"
+
+  local expires_at
+  expires_at="$(printf '%s' "$decoded_payload" | jq -r '.exp // 0')"
+  if [ -z "$expires_at" ] || [ "$expires_at" = "0" ]; then
+    fail "Nestor JWT payload does not contain numeric exp"
+  fi
+
+  local expires_at_ms=$((expires_at * 1000))
+  local username
+  local user_id
+  username="$(printf '%s' "$decoded_payload" | jq -r '.preferred_username // .email // .sub // ""')"
+  user_id="$(printf '%s' "$decoded_payload" | jq -r '.sub // ""')"
+
+  mkdir -p "$(dirname "$BLAZE_DP_CREDENTIALS_PATH")"
+  jq -n \
+    --arg jwt "$jwt" \
+    --arg username "$username" \
+    --arg userId "$user_id" \
+    --argjson expiresAt "$expires_at_ms" \
+    '{jwt: $jwt, expiresAt: $expiresAt, username: $username, userId: $userId, cachedModels: []}' \
+    >"$BLAZE_DP_CREDENTIALS_PATH"
+  chmod 600 "$BLAZE_DP_CREDENTIALS_PATH"
+
+  cp "$BLAZE_DP_CREDENTIALS_PATH" /root/.nessy/dp_auth_creds.json
+  chmod 600 /root/.nessy/dp_auth_creds.json
+  log "Nestor credentials cache prepared"
+}
+
+prepare_nestor_credentials
 
 if ! command -v blaze-runtime >/dev/null 2>&1; then
   fail "blaze-runtime binary not found in PATH. Check npm package install in Dockerfile."
@@ -68,6 +140,7 @@ log "starting blaze-runtime serve"
 log "host=${BLAZE_RUNTIME_HOST} port=${BLAZE_RUNTIME_PORT} workspace=${BLAZE_RUNTIME_WORKSPACE}"
 log "runtime_entry=${BLAZE_RUNTIME_ENTRY}"
 log "package=${BLAZE_RUNTIME_PACKAGE}"
+log "dp_credentials_path=${BLAZE_DP_CREDENTIALS_PATH}"
 
 exec blaze-runtime serve \
   --hostname "$BLAZE_RUNTIME_HOST" \

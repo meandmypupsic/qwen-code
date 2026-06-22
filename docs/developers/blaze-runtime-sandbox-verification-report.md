@@ -16,6 +16,60 @@ Sandbox запущен с правильными параметрами авто
 
 **Блокирующий фактор:** Создание сессии требует JWT для Nestor API. `BLAZE_DP_TOKEN` передаётся, но механизм обмена на JWT требует дополнительной интеграции с Nestor.
 
+## Диагностика после отчёта
+
+Этот отчёт был получен на образе `@art/blaze-runtime@0.18.4`.
+
+Важно: `0.18.4` уже починил двухуровневую HTTP-авторизацию через ML Core
+Proxy, но ещё не чинил внутреннюю Nestor/DP авторизацию ACP child process.
+Поэтому health и preflight доходили до runtime, но `POST /session` падал.
+
+Найдены три причины:
+
+1. ACP child не запускался явно в `dp-auth`.
+   - Preflight показывал `detail.source: "none"`.
+   - Это означало, что агентский процесс не выбрал Nestor/DP provider.
+
+2. ACP `authMethods` рекламировал только `openai`.
+   - Поэтому ошибка session creation возвращала `authMethods: [{ "id": "openai" }]`.
+   - Это сбивает follow-up агента: он начинает чинить OpenAI, хотя нужен Nestor/DP.
+
+3. DP runtime мог принять сырой DP/Ory токен вида `ory_at_...` за JWT.
+   - JWT должен иметь 3 части через точки.
+   - `ory_at_...` не JWT, поэтому появлялась ошибка `Invalid JWT: expected 3 parts`.
+
+Исправление внесено в `0.18.5`:
+
+- `/entrypoint.sh` делает `POST https://code-completion-nestor.tcsbank.ru/api/v2/token`
+  с `Authorization: Bearer <BLAZE_DP_TOKEN>`;
+- entrypoint пишет Nestor JWT cache в `/root/.blaze-runtime/dp_auth_creds.json`
+  и `/root/.nessy/dp_auth_creds.json`;
+- entrypoint выставляет `DP_AUTH=true`;
+- spawned ACP child стартует как `blaze-runtime --acp --auth-type=dp-auth`;
+- DP runtime больше не декодирует сырой `ory_at_...` как JWT;
+- ACP `authMethods` теперь включает `dp-auth`.
+
+Следующий запуск нужно делать на:
+
+```text
+npm:    @art/blaze-runtime@0.18.5
+docker: docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5
+```
+
+Ожидаемый preflight после фикса:
+
+```json
+{
+  "kind": "auth",
+  "locality": "acp",
+  "status": "ok",
+  "detail": {
+    "source": "dp-auth",
+    "hasToken": true
+  }
+}
+```
+
 ---
 
 ## Выполненные шаги
@@ -130,7 +184,13 @@ curl -X POST "$RUNTIME_URL/session" \
 }
 ```
 
-**Причина:** `BLAZE_DP_TOKEN` не обменивается на JWT автоматически. Требуется:
+**Причина в `0.18.4`:** `BLAZE_DP_TOKEN` не обменивается на JWT на старте,
+а ACP child не выбирает `dp-auth` автоматически.
+
+В `0.18.5` это исправлено. Для повторной проверки не передавай `OPENAI_API_KEY`
+и не пытайся чинить OpenAI provider. Собери и запусти новый образ `0.18.5`.
+
+Исторически возможные обходы для `0.18.4`:
 
 1. Либо готовый JWT (`BLAZE_DP_JWT`)
 2. Либо механизм обмена через Nestor API
@@ -229,21 +289,21 @@ export BLAZE_NESTOR_MODEL="gpt-4"
 
 ## Следующие шаги
 
-1. **Определить источник JWT:**
-   - Получить делегированный JWT от платформы
-   - Или настроить обмен через Nestor API
-
-2. **Передать JWT в sandbox:**
-
-   ```json
-   {
-     "environment": {
-       "BLAZE_DP_JWT": "<jwt-token>"
-     }
-   }
+1. Собрать и опубликовать npm `@art/blaze-runtime@0.18.5`.
+2. Собрать и опубликовать Docker image
+   `docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5`.
+3. Запустить sandbox с теми же двумя токенами:
+   - `Authorization: Bearer <DP_TOKEN>` для ML Core Proxy;
+   - `X-Blaze-Runtime-Authorization: Bearer <RUNTIME_TOKEN>` для runtime daemon.
+4. В env sandbox передать:
+   - `BLAZE_RUNTIME_TOKEN`;
+   - `BLAZE_DP_TOKEN` или legacy `DP_TOKEN`.
+5. Проверить, что в логах entrypoint есть:
+   ```text
+   exchanging DP token for Nestor JWT
+   Nestor credentials cache prepared
    ```
-
-3. **Повторить шаги 3-7 runbook:**
+6. Повторить шаги 3-7 runbook:
    - Create session
    - Open SSE
    - Prompt 1 (ORBIT-17)

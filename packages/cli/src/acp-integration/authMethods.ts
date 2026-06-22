@@ -10,6 +10,16 @@ import type { AuthMethod } from '@agentclientprotocol/sdk';
 export function buildAuthMethods(): AuthMethod[] {
   return [
     {
+      id: AuthType.DP_AUTH,
+      name: 'Use Nestor / DP auth',
+      description:
+        'Requires BLAZE_DP_TOKEN/DP_TOKEN for Nestor token exchange, or BLAZE_DP_JWT/NESSY_CLI_DP_AUTH_TOKEN for delegated JWT auth',
+      _meta: {
+        type: 'terminal',
+        args: ['--auth-type=dp-auth'],
+      },
+    },
+    {
       id: AuthType.USE_OPENAI,
       name: 'Use OpenAI API key',
       description: 'Requires setting the `OPENAI_API_KEY` environment variable',

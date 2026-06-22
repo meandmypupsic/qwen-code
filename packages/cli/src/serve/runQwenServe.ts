@@ -78,6 +78,7 @@ import type { AcpHttpHandle } from './acpHttp/index.js';
 
 const BLAZE_RUNTIME_TOKEN_ENV = 'BLAZE_RUNTIME_TOKEN';
 const QWEN_SERVER_TOKEN_ENV = 'QWEN_SERVER_TOKEN';
+const DP_AUTH_ENV = 'DP_AUTH';
 const QWEN_SERVE_PROMPT_DEADLINE_MS_ENV = 'QWEN_SERVE_PROMPT_DEADLINE_MS';
 const QWEN_SERVE_WRITER_IDLE_TIMEOUT_MS_ENV =
   'QWEN_SERVE_WRITER_IDLE_TIMEOUT_MS';
@@ -732,6 +733,32 @@ export async function runQwenServe(
         : undefined,
     QWEN_SERVE_MCP_BUDGET_MODE: opts.mcpBudgetMode,
   };
+  const dpAuthCredentialEnvKeys = [
+    'BLAZE_DP_TOKEN',
+    'DP_TOKEN',
+    'BLAZE_DP_JWT',
+    'NESSY_CLI_DP_AUTH_TOKEN',
+    'BLAZE_DP_CREDENTIALS_PATH',
+    DP_AUTH_ENV,
+  ];
+  const dpAuthEnvKeys = [
+    ...dpAuthCredentialEnvKeys,
+    'BLAZE_RUNTIME_HOME',
+    'BLAZE_NESTOR_SERVER_URL',
+    'BLAZE_NESTOR_BASE_URL',
+    'NESTOR_BASE_URL',
+    'BLAZE_NESTOR_MODEL',
+    'NESTOR_MODEL',
+  ];
+  const hasDpAuthEnv = dpAuthCredentialEnvKeys.some((key) =>
+    Boolean(process.env[key]),
+  );
+  for (const key of dpAuthEnvKeys) {
+    childEnvOverrides[key] = process.env[key];
+  }
+  if (hasDpAuthEnv && !childEnvOverrides[DP_AUTH_ENV]) {
+    childEnvOverrides[DP_AUTH_ENV] = 'true';
+  }
 
   // Read settings once at boot for the workspace context filename and
   // policy fields (permissionStrategy / consensusQuorum). Wrap in
