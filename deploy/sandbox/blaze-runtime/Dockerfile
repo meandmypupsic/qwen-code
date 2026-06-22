@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # Blaze Runtime replacement for the old nessy-cli async sandbox image flow.
 # This image installs a pre-published npm artifact and starts one long-lived
 # `blaze-runtime serve` process from entrypoint.sh.

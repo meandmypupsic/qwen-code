@@ -25,6 +25,11 @@ Do not run `sandbox-agent ExecuteCommand` for every prompt. The image entrypoint
 starts one long-lived `blaze-runtime serve` process. That daemon then keeps a
 long-lived ACP child process for the user's session.
 
+If Docker build or Artifactory publishing fails, also read
+`docs/developers/blaze-runtime-sandbox-docker-build.md`. It records the first
+known corporate-network failure mode and the registry split between npm publish
+and Docker install.
+
 ## 1. Build the npm artifact
 
 From the repository root:
@@ -65,22 +70,26 @@ test -f dist/blaze-runtime-entry.js
 
 ## 2. Publish the npm artifact
 
-Set your internal npm registry:
+Set the internal npm registry used for publishing:
 
 ```bash
-export NPM_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/"
+export NPM_PUBLISH_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 ```
 
 If the current package version already exists in Artifactory, set a new version
 before running `prepare:package`. Do not publish over an existing immutable npm
 version.
 
+Do not publish to `npm-all`. Use `npm-hosted` for publishing. `npm-all` is
+useful as an install/virtual registry, but publishing there can fail with
+permission errors.
+
 Pack and publish:
 
 ```bash
 cd dist
 npm pack
-npm publish --registry "$NPM_REGISTRY"
+npm publish --registry "$NPM_PUBLISH_REGISTRY"
 ```
 
 Record package name and version:
@@ -109,6 +118,17 @@ Return to repository root:
 cd ..
 ```
 
+Set the registry used by Docker while it installs the already-published package:
+
+```bash
+export NPM_INSTALL_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/"
+```
+
+Usually use `npm-all` for Docker install so npm can resolve both the internal
+`@art/blaze-runtime` package and any public/optional dependencies through the
+corporate virtual registry. If your Artifactory setup requires direct hosted
+reads, set `NPM_INSTALL_REGISTRY` to `npm-hosted` instead.
+
 Build:
 
 ```bash
@@ -116,7 +136,7 @@ export IMAGE="<docker-registry>/<namespace>/blaze-runtime-sandbox:${BLAZE_RUNTIM
 
 docker build --platform linux/amd64 \
   -f deploy/sandbox/blaze-runtime/Dockerfile \
-  --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+  --build-arg NPM_REGISTRY="$NPM_INSTALL_REGISTRY" \
   --build-arg BLAZE_RUNTIME_PACKAGE="$BLAZE_RUNTIME_PACKAGE" \
   --build-arg BLAZE_RUNTIME_VERSION="$BLAZE_RUNTIME_VERSION" \
   -t "$IMAGE" \

@@ -26,6 +26,10 @@ tls: failed to verify certificate: x509: certificate signed by unknown authority
 
 ### Решение
 
+Статус в репозитории: `deploy/sandbox/blaze-runtime/Dockerfile` должен быть уже
+исправлен. Если в файле всё ещё есть первая строка `# syntax=docker/dockerfile:1`,
+значит у тебя старый checkout — подтяни свежий `main`.
+
 **Удалить строку `# syntax=docker/dockerfile:1` из Dockerfile.**
 
 Эта строка **не обязательна** — Docker будет использовать стандартный парсер Dockerfile.
@@ -83,7 +87,7 @@ node -e "const p=require('./dist/package.json'); console.log(p.name, p.version, 
 # Настройка аутентификации
 dp auth configure-npm
 
-# Публикация
+# Публикация. Важно: publish должен идти в npm-hosted, не в npm-all.
 cd dist
 npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 
@@ -98,12 +102,12 @@ cd /Users/s.salnikov/Documents/Developers/qwen-code
 
 export BLAZE_RUNTIME_PACKAGE="@art/blaze-runtime"
 export BLAZE_RUNTIME_VERSION="0.18.3"
-export NPM_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+export NPM_INSTALL_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/"
 export IMAGE="docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:${BLAZE_RUNTIME_VERSION}"
 
 docker build --platform linux/amd64 \
   -f deploy/sandbox/blaze-runtime/Dockerfile \
-  --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
+  --build-arg NPM_REGISTRY="$NPM_INSTALL_REGISTRY" \
   --build-arg BLAZE_RUNTIME_PACKAGE="$BLAZE_RUNTIME_PACKAGE" \
   --build-arg BLAZE_RUNTIME_VERSION="$BLAZE_RUNTIME_VERSION" \
   -t "$IMAGE" \
@@ -175,6 +179,14 @@ curl -i -H "Authorization: Bearer local-dev-token" http://127.0.0.1:4170/health
 | `blaze-runtime binary not found`               | Проверить что npm пакет опубликован и установлен глобально                     |
 | `403 Forbidden` при npm publish                | Использовать `npm-hosted` вместо `npm-all`, проверить права Artifact publisher |
 | `EBADREQ` при npm publish                      | Войти в Artifactory UI и нажать Devplatform для активации роли                 |
+
+Если после удаления `# syntax=docker/dockerfile:1` следующая TLS-ошибка появится
+на строке `ADD https://nexus.tcsbank.ru/.../tinkoff-bundle.crt`, это уже другая
+проблема: Docker builder не может скачать корпоративный CA bundle из Nexus. Эта
+строка унаследована из старого `nessy-cli` image flow и обычно работает в
+корпоративной среде. Если она падает, нужно либо настроить доверие Docker к
+корпоративному CA, либо положить `tinkoff-bundle.crt` в build context и заменить
+remote `ADD` на локальный `COPY`.
 
 ## Ссылки
 
