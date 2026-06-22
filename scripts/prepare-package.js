@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRootDir = path.resolve(__dirname, '..');
+const defaultBlazeRuntimePackageName = '@art/blaze-runtime';
 
 export function preparePackage({ rootDir = defaultRootDir } = {}) {
   const distDir = path.join(rootDir, 'dist');
@@ -180,9 +181,13 @@ if (result.signal) {
   const rootPackageJson = JSON.parse(
     fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8'),
   );
+  const packageName =
+    process.env.BLAZE_RUNTIME_PACKAGE_NAME ||
+    rootPackageJson.config?.blazeRuntimePackageName ||
+    defaultBlazeRuntimePackageName;
 
   const distPackageJson = {
-    name: rootPackageJson.name,
+    name: packageName,
     version: rootPackageJson.version,
     description:
       rootPackageJson.description || 'Qwen Code - AI-powered coding assistant',

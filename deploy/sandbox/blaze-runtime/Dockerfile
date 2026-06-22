@@ -8,7 +8,7 @@ ARG BASE_IMAGE=docker-hosted.artifactory.tcsbank.ru/cicd-images/nodejs-22
 FROM --platform=linux/amd64 ${BASE_IMAGE}
 
 ARG NPM_REGISTRY=https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/
-ARG BLAZE_RUNTIME_PACKAGE=@qwen-code/qwen-code
+ARG BLAZE_RUNTIME_PACKAGE=@art/blaze-runtime
 ARG BLAZE_RUNTIME_VERSION=0.18.3
 
 ENV BLAZE_RUNTIME_PACKAGE=${BLAZE_RUNTIME_PACKAGE}

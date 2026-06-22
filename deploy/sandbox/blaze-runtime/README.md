@@ -14,7 +14,7 @@ build/publish nessy-cli npm artifact
 New flow:
 
 ```text
-build/publish qwen-code npm artifact with blaze-runtime bin
+build/publish @art/blaze-runtime npm artifact with blaze-runtime bin
   -> install that npm artifact in deploy/sandbox/blaze-runtime/Dockerfile
   -> build/publish Docker image
   -> pass Docker image + env + port 4170 to sandbox start
@@ -38,6 +38,15 @@ npm run prepare:package
 ```
 
 The distributable npm package is prepared in `dist/`.
+
+Important naming rule: do not publish the sandbox MVP package as
+`@qwen-code/qwen-code`. The repository can still keep upstream Qwen package
+names internally, but `npm run prepare:package` rewrites the distributable
+`dist/package.json` name to the Blaze-owned package name:
+
+```text
+@art/blaze-runtime
+```
 
 Important: `prepare:package` must produce a package with both bins:
 
@@ -85,11 +94,12 @@ echo "$BLAZE_RUNTIME_PACKAGE@$BLAZE_RUNTIME_VERSION"
 Expected MVP package name today:
 
 ```text
-@qwen-code/qwen-code
+@art/blaze-runtime
 ```
 
-The public product boundary is the `blaze-runtime` binary inside that package.
-The package can still contain qwen names during this MVP stage.
+If this prints `@qwen-code/qwen-code`, stop and fix `scripts/prepare-package.js`
+before publishing. The public product boundary is the `blaze-runtime` binary
+inside the `@art/blaze-runtime` package.
 
 ## 3. Build the sandbox Docker image
 

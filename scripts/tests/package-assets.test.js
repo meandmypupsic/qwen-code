@@ -60,6 +60,10 @@ describe('package asset scripts', () => {
       readFileSync(path.join(rootDir, 'dist', 'package.json'), 'utf8'),
     );
 
+    expect(distPackageJson.name).toBe('@art/blaze-runtime');
+    expect(distPackageJson.bin).toMatchObject({
+      'blaze-runtime': 'blaze-runtime-entry.js',
+    });
     expect(distPackageJson.files).toContain('examples');
     expect(
       existsSync(
@@ -121,6 +125,7 @@ describe('package asset scripts', () => {
 
   function createBundleArtifacts(rootDir) {
     writeFile(rootDir, 'dist/cli.js', '');
+    writeFile(rootDir, 'dist/blaze-runtime.js', '');
     mkdirSync(path.join(rootDir, 'dist', 'vendor'), { recursive: true });
     mkdirSync(path.join(rootDir, 'dist', 'bundled', 'qc-helper', 'docs'), {
       recursive: true,

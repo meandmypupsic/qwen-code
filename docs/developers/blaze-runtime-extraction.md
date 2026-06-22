@@ -80,7 +80,9 @@ workspace session.
 
 The first stage still reuses the existing monorepo internals:
 
-- package names are still mostly `@qwen-code/...`
+- internal workspace package names are still mostly `@qwen-code/...`, but the
+  sandbox MVP npm artifact produced by `npm run prepare:package` is published
+  as `@art/blaze-runtime`
 - many logs and help strings still say `qwen serve`
 - most environment variables still use names like `QWEN_SERVE_*`
 - serve tests and docs still describe the original Qwen surface
