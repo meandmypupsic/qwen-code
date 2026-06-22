@@ -36,6 +36,11 @@ If Docker build or Artifactory publishing fails, also read
 known corporate-network failure mode and the registry split between npm publish
 and Docker install.
 
+For the final end-to-end sandbox proof, follow
+`docs/developers/blaze-runtime-sandbox-final-verification.md`. That runbook is
+the source of truth for the `health -> preflight -> session -> SSE -> prompt ->
+session_update -> ORBIT-17` verification flow.
+
 ## 1. Build the npm artifact
 
 From the repository root:
@@ -257,6 +262,13 @@ also accepts legacy `DP_TOKEN` and maps it to `BLAZE_DP_TOKEN`.
 
 After sandbox start, the platform should return a proxied URL for port `4170`.
 Call it `<RUNTIME_URL>`.
+
+The commands below are the short version. For Qwen or any follow-up agent, use
+the stricter full runbook:
+
+```text
+docs/developers/blaze-runtime-sandbox-final-verification.md
+```
 
 Health:
 

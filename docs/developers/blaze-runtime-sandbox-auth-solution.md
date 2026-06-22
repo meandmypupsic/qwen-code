@@ -348,6 +348,10 @@ BLAZE_RUNTIME_TOKEN=<runtime-bearer-token>
 - [ ] Sandbox перешёл в статус `RUNNING`
 - [ ] Health check возвращает 200 с обоими заголовками
 - [ ] Preflight возвращает `initialized: true`
+- [ ] Выполнен полный финальный runbook:
+      `docs/developers/blaze-runtime-sandbox-final-verification.md`
+- [ ] SSE после prompt содержит реальные `session_update`, а второй prompt в
+      той же session после сборки streamed chunks даёт `ORBIT-17`
 
 ---
 
@@ -366,6 +370,7 @@ BLAZE_RUNTIME_TOKEN=<runtime-bearer-token>
 ## Ссылки
 
 - [Blaze Runtime Sandbox MVP Handoff](./blaze-runtime-sandbox-mvp-handoff.md)
+- [Blaze Runtime Sandbox Final Verification](./blaze-runtime-sandbox-final-verification.md)
 - [Blaze Runtime Local Smoke Test](./blaze-runtime-local-smoke-test.md)
 - [Blaze Runtime Sandbox Debug](./blaze-runtime-sandbox-debug.md)
 - [Blaze Runtime Docker Build](./blaze-runtime-sandbox-docker-build.md)

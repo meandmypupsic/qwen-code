@@ -25,6 +25,8 @@ export default {
   'blaze-runtime-local-smoke-test': 'Blaze Runtime Local Smoke Test',
   'blaze-runtime-local-stabilization': 'Blaze Runtime Local Stabilization',
   'blaze-runtime-sandbox-mvp-handoff': 'Blaze Runtime Sandbox MVP Handoff',
+  'blaze-runtime-sandbox-final-verification':
+    'Blaze Runtime Sandbox Final Verification',
   daemon: 'Daemon Mode (Developer Deep Dive)',
 
   examples: {

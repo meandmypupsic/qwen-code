@@ -25,6 +25,12 @@ Before starting sandbox work, read the local stabilization report:
 docs/developers/blaze-runtime-local-smoke-test.md
 ```
 
+For final sandbox validation, use this runbook:
+
+```text
+docs/developers/blaze-runtime-sandbox-final-verification.md
+```
+
 That report is the baseline for what "works" means. In particular, a successful
 `POST /session/:id/prompt` response with `promptId` only proves prompt
 admission. It does not prove that the model answered. A real proof must come
@@ -665,6 +671,12 @@ Do not guess. Collect this information and report it exactly:
       auth errors, ACP child exits, and Nestor HTTP errors.
 
 ## Expected Success Statement
+
+For sandbox, the detailed source of truth is:
+
+```text
+docs/developers/blaze-runtime-sandbox-final-verification.md
+```
 
 Only say the MVP works when all of these are true:
 
