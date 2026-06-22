@@ -18,6 +18,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultRootDir = path.resolve(__dirname, '..');
 const defaultBlazeRuntimePackageName = '@art/blaze-runtime';
+const blazeRuntimeFreshnessMarkers = [
+  {
+    label: 'DP auth method advertised to ACP clients',
+    text: 'Use Nestor / DP auth',
+  },
+  {
+    label: 'ACP child auth-type env bridge',
+    text: 'BLAZE_RUNTIME_AUTH_TYPE',
+  },
+  {
+    label: 'raw Ory token is not decoded as JWT',
+    text: 'DP auth received a non-JWT apiKey value',
+  },
+];
 
 export function preparePackage({ rootDir = defaultRootDir } = {}) {
   const distDir = path.join(rootDir, 'dist');
@@ -63,6 +77,68 @@ function verifyBundleArtifacts(rootDir, distDir) {
       process.exit(1);
     }
   }
+
+  verifyBlazeRuntimeBundleFreshness(distDir);
+}
+
+function verifyBlazeRuntimeBundleFreshness(distDir) {
+  const bundleText = collectBundleJs(distDir);
+  const missing = blazeRuntimeFreshnessMarkers.filter(
+    (marker) => !bundleText.includes(marker.text),
+  );
+
+  if (missing.length === 0) {
+    return;
+  }
+
+  console.error('Error: dist/ bundle is stale for Blaze Runtime sandbox.');
+  console.error(
+    'The package metadata may be current, but the bundled runtime JS does not ' +
+      'contain required DP/Nestor auth fixes.',
+  );
+  console.error('Missing bundle markers:');
+  for (const marker of missing) {
+    console.error(`  - ${marker.label}: ${JSON.stringify(marker.text)}`);
+  }
+  console.error('');
+  console.error('Run these commands from the repository root before publish:');
+  console.error('  npm ci');
+  console.error('  npm run build --workspace=packages/core');
+  console.error('  npm run build --workspace=packages/cli');
+  console.error('  npm run bundle');
+  console.error('  npm run prepare:package');
+  process.exit(1);
+}
+
+function collectBundleJs(distDir) {
+  const chunksDir = path.join(distDir, 'chunks');
+  const files = [
+    path.join(distDir, 'cli.js'),
+    path.join(distDir, 'blaze-runtime.js'),
+    ...listJsFiles(chunksDir),
+  ];
+
+  return files
+    .filter((file) => fs.existsSync(file))
+    .map((file) => fs.readFileSync(file, 'utf8'))
+    .join('\n');
+}
+
+function listJsFiles(dir) {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+
+  const result = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      result.push(...listJsFiles(entryPath));
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      result.push(entryPath);
+    }
+  }
+  return result;
 }
 
 function copyDocumentationFiles(rootDir, distDir) {

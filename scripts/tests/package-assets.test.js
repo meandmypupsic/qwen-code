@@ -125,7 +125,15 @@ describe('package asset scripts', () => {
 
   function createBundleArtifacts(rootDir) {
     writeFile(rootDir, 'dist/cli.js', '');
-    writeFile(rootDir, 'dist/blaze-runtime.js', '');
+    writeFile(
+      rootDir,
+      'dist/blaze-runtime.js',
+      [
+        'Use Nestor / DP auth',
+        'BLAZE_RUNTIME_AUTH_TYPE',
+        'DP auth received a non-JWT apiKey value',
+      ].join('\n'),
+    );
     mkdirSync(path.join(rootDir, 'dist', 'vendor'), { recursive: true });
     mkdirSync(path.join(rootDir, 'dist', 'bundled', 'qc-helper', 'docs'), {
       recursive: true,

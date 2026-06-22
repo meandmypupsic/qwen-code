@@ -6,6 +6,46 @@
 
 ---
 
+## Диагноз после ревью Codex
+
+Наиболее вероятная причина — **stale npm bundle**, а не Nestor egress.
+
+Ключевой симптом: session error возвращает только:
+
+```json
+{ "authMethods": [{ "id": "openai", "name": "Use OpenAI API key" }] }
+```
+
+В исходном коде после фикса `buildAuthMethods()` уже обязан возвращать два
+метода: `dp-auth` и `openai`. Если в sandbox виден только `openai`, значит
+Docker image выполняет старый bundled JS. Такое возможно, если агент сделал
+`npm run prepare:package` и получил свежий `dist/package.json`, но перед этим не
+пересобрал `dist/blaze-runtime.js` через `npm run bundle`.
+
+`@art/blaze-runtime@0.18.5` теперь нужно считать подозрительным immutable
+artifact. Для следующей проверки использовать новую версию `0.18.6+`.
+
+В `0.18.6` добавлен guard: `npm run prepare:package` падает, если `dist/` не
+содержит DP/Nestor auth markers. Правильный recovery flow:
+
+```bash
+npm ci
+npm run build --workspace=packages/core
+npm run build --workspace=packages/cli
+npm run bundle
+npm run prepare:package
+cd dist
+npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+```
+
+После этого собрать Docker image с:
+
+```bash
+export BLAZE_RUNTIME_VERSION="0.18.6"
+```
+
+---
+
 ## Краткое описание
 
 Sandbox запускается, health check работает, но **аутентификация для Nestor API не работает**. Preflight показывает `auth.source: "none"` вместо ожидаемого `auth.source: "dp-auth"`.

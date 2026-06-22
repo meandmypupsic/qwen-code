@@ -52,8 +52,8 @@ Proxy, но ещё не чинил внутреннюю Nestor/DP авториз
 Следующий запуск нужно делать на:
 
 ```text
-npm:    @art/blaze-runtime@0.18.5
-docker: docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5
+npm:    @art/blaze-runtime@0.18.6
+docker: docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6
 ```
 
 Ожидаемый preflight после фикса:
@@ -187,8 +187,10 @@ curl -X POST "$RUNTIME_URL/session" \
 **Причина в `0.18.4`:** `BLAZE_DP_TOKEN` не обменивается на JWT на старте,
 а ACP child не выбирает `dp-auth` автоматически.
 
-В `0.18.5` это исправлено. Для повторной проверки не передавай `OPENAI_API_KEY`
-и не пытайся чинить OpenAI provider. Собери и запусти новый образ `0.18.5`.
+В исходниках это исправлено. Для повторной проверки не передавай
+`OPENAI_API_KEY` и не пытайся чинить OpenAI provider. Собери и запусти новый
+образ `0.18.6+`, потому что `0.18.5` мог быть опубликован из stale `dist/`
+bundle.
 
 Исторически возможные обходы для `0.18.4`:
 
@@ -289,9 +291,9 @@ export BLAZE_NESTOR_MODEL="gpt-4"
 
 ## Следующие шаги
 
-1. Собрать и опубликовать npm `@art/blaze-runtime@0.18.5`.
+1. Собрать и опубликовать npm `@art/blaze-runtime@0.18.6`.
 2. Собрать и опубликовать Docker image
-   `docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5`.
+   `docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6`.
 3. Запустить sandbox с теми же двумя токенами:
    - `Authorization: Bearer <DP_TOKEN>` для ML Core Proxy;
    - `X-Blaze-Runtime-Authorization: Bearer <RUNTIME_TOKEN>` для runtime daemon.

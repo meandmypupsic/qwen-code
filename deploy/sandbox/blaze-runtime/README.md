@@ -55,6 +55,17 @@ npm run prepare:package
 
 The distributable npm package is prepared in `dist/`.
 
+Do not skip `npm run bundle`. `npm run prepare:package` now checks that
+`dist/` contains the DP/Nestor auth fixes before it writes publish metadata. If
+it fails with `dist/ bundle is stale for Blaze Runtime sandbox`, run the full
+sequence above again from a clean checkout. A package can have a new
+`dist/package.json` version while still containing an old `dist/*.js` bundle;
+that exact mistake makes sandbox preflight report `auth.source: "none"` and
+session creation return only the `openai` auth method.
+
+If `@art/blaze-runtime@0.18.5` was already published from a stale `dist/`, do
+not reuse it for verification. Publish the next version, currently `0.18.6`.
+
 Important naming rule: do not publish the sandbox MVP package as
 `@qwen-code/qwen-code`. The repository can still keep upstream Qwen package
 names internally, but `npm run prepare:package` rewrites the distributable
@@ -77,6 +88,8 @@ Verify:
 node -e "const p=require('./dist/package.json'); console.log(p.name, p.version, p.bin)"
 test -f dist/blaze-runtime.js
 test -f dist/blaze-runtime-entry.js
+grep -R "Use Nestor / DP auth" dist
+grep -R "BLAZE_RUNTIME_AUTH_TYPE" dist
 ```
 
 ## 2. Publish the npm artifact

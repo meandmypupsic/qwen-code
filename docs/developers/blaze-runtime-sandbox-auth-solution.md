@@ -4,7 +4,7 @@
 Blaze Runtime Sandbox через ML Core Sandbox API.
 
 **Дата решения:** 2026-06-22  
-**Версия:** @art/blaze-runtime@0.18.5
+**Версия:** @art/blaze-runtime@0.18.6
 
 ---
 
@@ -32,6 +32,13 @@ Blaze Runtime Sandbox через ML Core Sandbox API.
   `blaze-runtime --acp --auth-type=dp-auth`
 - DP runtime больше не пытается декодировать сырой `ory_at_...` как JWT, если
   этот токен попал в generic `settings.security.auth.apiKey`
+
+**Критическое изменение в v0.18.6:**
+
+- `npm run prepare:package` теперь падает, если `dist/` содержит старый bundle
+  без DP/Nestor auth fixes. Это защищает от ситуации, когда
+  `dist/package.json` уже показывает новую версию, но `dist/blaze-runtime.js`
+  и `dist/chunks/*.js` остались от старой сборки.
 
 ---
 
@@ -103,7 +110,8 @@ Preflight при этом мог показывать:
 3. DP runtime мог принять сырой `ory_at_...` из generic apiKey за JWT и пытался
    декодировать его как JWT.
 
-**Исправление:** использовать `@art/blaze-runtime@0.18.5` или новее.
+**Исправление:** использовать `@art/blaze-runtime@0.18.6` или новее и убедиться,
+что `npm run prepare:package` прошёл без stale bundle ошибки.
 
 ---
 
@@ -155,7 +163,7 @@ ML Core sandbox не запускает Docker `ENTRYPOINT` автоматиче
   "project": "art",
   "spec": {
     "flavor": "2cpu-4ram",
-    "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5",
+    "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6",
     "containerPorts": [
       {
         "name": "http",
@@ -218,7 +226,7 @@ curl -s -X POST \
     "project": "art",
     "spec": {
       "flavor": "2cpu-4ram",
-      "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.5",
+      "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6",
       "containerPorts": [{"port": 4170, "name": "http"}],
       "environment": {
         "BLAZE_RUNTIME_TOKEN": "'"$RUNTIME_TOKEN"'",
@@ -448,7 +456,37 @@ DP runtime больше не считает любую `apiKey` строку JWT
 попал сырой `ory_at_...`, runtime обменивает его как DP access token или берёт
 настоящий DP token из env.
 
-### Ожидаемый preflight после v0.18.5
+## Изменения в v0.18.6
+
+### scripts/prepare-package.js
+
+Перед публикацией npm artifact проверяет, что bundle действительно содержит
+новую DP/Nestor auth логику:
+
+```text
+Use Nestor / DP auth
+BLAZE_RUNTIME_AUTH_TYPE
+DP auth received a non-JWT apiKey value
+```
+
+Если этих строк нет в `dist/`, значит был выполнен `npm run prepare:package`
+поверх старого bundle. Такой пакет будет выглядеть как новая версия, но в
+sandbox поведёт себя как старый runtime: preflight покажет
+`auth.source: "none"`, а `authMethods` будет содержать только `openai`.
+
+Правильный recovery:
+
+```bash
+npm ci
+npm run build --workspace=packages/core
+npm run build --workspace=packages/cli
+npm run bundle
+npm run prepare:package
+cd dist
+npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+```
+
+### Ожидаемый preflight после v0.18.6
 
 ```json
 {
@@ -493,8 +531,8 @@ DP runtime больше не считает любую `apiKey` строку JWT
 | `401 Unauthorized` (daemon) | Невалидный runtime токен | Проверить `BLAZE_RUNTIME_TOKEN` в env          |
 | `null` proxy URL            | Нет `containerPorts`     | Добавить `[{port: 4170, name: "http"}]`        |
 | `Invalid port name`         | Имя порта > 16 символов  | Использовать `"http"` вместо `"blaze-runtime"` |
-| `No auth method configured` | Старый образ или ACP child не в `dp-auth` | Использовать `0.18.5+`, проверить `DP_AUTH=true` |
-| `Invalid JWT: expected 3 parts` | Сырой `ory_at_...` был принят за JWT | Использовать `0.18.5+`, передавать raw DP token в `BLAZE_DP_TOKEN` |
+| `No auth method configured` | Старый образ, stale bundle или ACP child не в `dp-auth` | Использовать `0.18.6+`, проверить bundle guard и `DP_AUTH=true` |
+| `Invalid JWT: expected 3 parts` | Сырой `ory_at_...` был принят за JWT или запущен старый bundle | Использовать `0.18.6+`, передавать raw DP token в `BLAZE_DP_TOKEN` |
 
 ---
 
