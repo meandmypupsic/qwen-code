@@ -194,3 +194,92 @@ remote `ADD` на локальный `COPY`.
 - [Blaze Runtime Local Smoke Test](./blaze-runtime-local-smoke-test.md)
 - [deploy/sandbox/blaze-runtime/README.md](../../deploy/sandbox/blaze-runtime/README.md)
 - [Spirit Docs: Docker-образы](https://devplatform.pages.devplatform.tcsbank.ru/spirit-user-docs/docs/build/artifacts/registry/)
+
+## Отчёт о проблемах и решениях (июнь 2026)
+
+Ниже задокументированы все проблемы, с которыми столкнулись при первой публикации
+Blaze Runtime Sandbox, и способы их решения.
+
+### Проблема 1: npm publish возвращает 403 Forbidden в npm-all
+
+**Симптом:**
+
+```
+npm error 403 403 Forbidden - PUT https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/@art%2fblaze-runtime
+```
+
+**Причина:**
+Репозиторий `npm-all` — это virtual registry (только для чтения). Публикация возможна
+только в `npm-hosted`.
+
+**Решение:**
+
+```bash
+npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+```
+
+### Проблема 2: Ory токен не работает для прямой npm авторизации
+
+**Симптом:**
+Токен вида `ory_at_...` не проходит авторизацию при прямой публикации npm.
+
+**Причина:**
+Ory токены предназначены для OAuth2 flow и не работают как bearer токены для npm.
+
+**Решение:**
+Использовать `dp auth configure-npm` — Spirit CLI автоматически получает и настраивает
+валидный токен для сервис-аккаунта.
+
+### Проблема 3: Docker push forbidden с credential helper
+
+**Симптом:**
+
+```
+cannot save helper script: failed to open helper file: open /usr/local/bin/docker-credential-artifactory: permission denied
+```
+
+**Причина:**
+`dp auth configure-docker` пытается записать credential helper в `/usr/local/bin/`
+без прав root.
+
+**Решение:**
+
+1. Аутентифицироваться через сервис-аккаунт:
+   ```bash
+   dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
+   ```
+2. Токен сохраняется в сессии dp и используется Docker автоматически через credHelpers.
+
+### Проблема 4: Docker push forbidden после обновления токена
+
+**Симптом:**
+
+```
+error from registry: forbidden action with repository
+```
+
+**Причина:**
+Токен Ory (`ory_at_...`) устарел или не имеет прав на push в тенант `art`.
+
+**Решение:**
+Использовать сервис-аккаунт `sa-art-docker-publisher` через dp CLI:
+
+```bash
+dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
+docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.3
+```
+
+### Итоговый рабочий алгоритм
+
+```bash
+# 1. npm публикация
+dp auth configure-npm
+cd dist && npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+
+# 2. Docker публикация
+dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
+docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.3
+```
+
+**Важно:** Не пытаться использовать Ory токены напрямую. Всегда использовать dp CLI
+для настройки аутентификации.
