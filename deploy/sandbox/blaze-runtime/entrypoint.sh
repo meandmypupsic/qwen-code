@@ -27,9 +27,21 @@ if [ -z "${BLAZE_DP_TOKEN:-}" ] && [ -n "${DP_TOKEN:-}" ]; then
   export BLAZE_DP_TOKEN="$DP_TOKEN"
 fi
 
+jwt_part_count() {
+  if [ -z "$1" ]; then
+    printf '0'
+    return
+  fi
+  printf '%s' "$1" | awk -F. '{print NF}'
+}
+
+is_jwt_like() {
+  [ "$(jwt_part_count "$1")" -eq 3 ]
+}
+
 if [ -z "${BLAZE_DP_TOKEN:-}" ] &&
-  [ -z "${BLAZE_DP_JWT:-}" ] &&
-  [ -z "${NESSY_CLI_DP_AUTH_TOKEN:-}" ]; then
+  ! is_jwt_like "${BLAZE_DP_JWT:-}" &&
+  ! is_jwt_like "${NESSY_CLI_DP_AUTH_TOKEN:-}"; then
   fail "set BLAZE_DP_TOKEN/DP_TOKEN for Nestor exchange, or BLAZE_DP_JWT/NESSY_CLI_DP_AUTH_TOKEN for delegated JWT auth"
 fi
 
@@ -44,33 +56,10 @@ export DP_AUTH="${DP_AUTH:-true}"
 
 mkdir -p "$BLAZE_RUNTIME_WORKSPACE" "$BLAZE_RUNTIME_HOME" /root/.nessy
 
-prepare_nestor_credentials() {
-  if [ -n "${BLAZE_DP_JWT:-}" ] || [ -n "${NESSY_CLI_DP_AUTH_TOKEN:-}" ]; then
-    log "delegated Nestor JWT env detected, skipping DP token exchange"
-    return
-  fi
-
-  if [ -z "${BLAZE_DP_TOKEN:-}" ]; then
-    return
-  fi
-
-  local token_url="${BLAZE_NESTOR_SERVER_URL%/}/api/v2/token"
-  local response_file="/tmp/blaze-runtime-nestor-token.json"
-
-  log "exchanging DP token for Nestor JWT"
-  if ! curl --fail --silent --show-error --request POST \
-    --url "$token_url" \
-    --header 'Accept: application/json' \
-    --header "Authorization: Bearer ${BLAZE_DP_TOKEN}" \
-    --header 'Content-Type: application/json' \
-    --data '{}' >"$response_file"; then
-    fail "Nestor token exchange failed at ${token_url}. Check DP token validity and sandbox egress to Nestor."
-  fi
-
-  local jwt
-  jwt="$(jq -r '.jwt // empty' "$response_file")"
-  if [ -z "$jwt" ] || [ "$(printf '%s' "$jwt" | awk -F. '{print NF}')" -ne 3 ]; then
-    fail "Nestor token exchange response did not contain a valid jwt field"
+write_credentials_from_jwt() {
+  local jwt="$1"
+  if ! is_jwt_like "$jwt"; then
+    fail "Nestor credentials require a valid JWT with 3 parts"
   fi
 
   local jwt_payload
@@ -108,6 +97,51 @@ prepare_nestor_credentials() {
   cp "$BLAZE_DP_CREDENTIALS_PATH" /root/.nessy/dp_auth_creds.json
   chmod 600 /root/.nessy/dp_auth_creds.json
   log "Nestor credentials cache prepared"
+}
+
+prepare_nestor_credentials() {
+  if [ -n "${BLAZE_DP_JWT:-}" ]; then
+    if is_jwt_like "$BLAZE_DP_JWT"; then
+      log "delegated Nestor JWT env detected (BLAZE_DP_JWT), skipping DP token exchange"
+      write_credentials_from_jwt "$BLAZE_DP_JWT"
+      return
+    fi
+    log "BLAZE_DP_JWT is set but not a valid JWT; will use DP token exchange if available"
+  fi
+
+  if [ -n "${NESSY_CLI_DP_AUTH_TOKEN:-}" ]; then
+    if is_jwt_like "$NESSY_CLI_DP_AUTH_TOKEN"; then
+      log "delegated Nestor JWT env detected (NESSY_CLI_DP_AUTH_TOKEN), skipping DP token exchange"
+      write_credentials_from_jwt "$NESSY_CLI_DP_AUTH_TOKEN"
+      return
+    fi
+    log "NESSY_CLI_DP_AUTH_TOKEN is set but not a valid JWT; will use DP token exchange if available"
+  fi
+
+  if [ -z "${BLAZE_DP_TOKEN:-}" ]; then
+    return
+  fi
+
+  local token_url="${BLAZE_NESTOR_SERVER_URL%/}/api/v2/token"
+  local response_file="/tmp/blaze-runtime-nestor-token.json"
+
+  log "exchanging DP token for Nestor JWT"
+  if ! curl --fail --silent --show-error --request POST \
+    --url "$token_url" \
+    --header 'Accept: application/json' \
+    --header "Authorization: Bearer ${BLAZE_DP_TOKEN}" \
+    --header 'Content-Type: application/json' \
+    --data '{}' >"$response_file"; then
+    fail "Nestor token exchange failed at ${token_url}. Check DP token validity and sandbox egress to Nestor."
+  fi
+
+  local jwt
+  jwt="$(jq -r '.jwt // empty' "$response_file")"
+  if [ -z "$jwt" ] || [ "$(printf '%s' "$jwt" | awk -F. '{print NF}')" -ne 3 ]; then
+    fail "Nestor token exchange response did not contain a valid jwt field"
+  fi
+
+  write_credentials_from_jwt "$jwt"
 }
 
 prepare_nestor_credentials

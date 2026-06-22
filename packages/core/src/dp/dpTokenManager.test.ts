@@ -119,6 +119,36 @@ describe('dpTokenManager', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not treat the ML Core NESTOR_TOKEN placeholder as delegated JWT credentials', () => {
+    useTempCredentialsPath();
+    vi.stubEnv('NESSY_CLI_DP_AUTH_TOKEN', '$NESTOR_TOKEN');
+
+    expect(hasDpAuthCredentials()).toBe(false);
+  });
+
+  it('ignores non-JWT legacy Nessy env and exchanges DP_TOKEN instead', async () => {
+    useTempCredentialsPath();
+    const jwt = fakeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      sub: 'dp-token-fallback-user',
+    });
+    vi.stubEnv('NESSY_CLI_DP_AUTH_TOKEN', '$NESTOR_TOKEN');
+    vi.stubEnv('DP_TOKEN', 'ory_at_from_legacy_env');
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer ory_at_from_legacy_env',
+      });
+      return new Response(JSON.stringify({ jwt }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const credentials = await resolveDpCredentials();
+
+    expect(credentials.jwt).toBe(jwt);
+    expect(credentials.source).toBe('dp-token');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects a non-JWT explicit apiKey when no DP token, JWT, or cache exists', async () => {
     useTempCredentialsPath();
 

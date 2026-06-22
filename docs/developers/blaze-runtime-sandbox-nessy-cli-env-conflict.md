@@ -2,7 +2,7 @@
 
 **Дата:** 2026-06-22  
 **Версия:** @art/blaze-runtime@0.18.6  
-**Статус:** 🔴 БЛОКИРОВАНО — требуется фикс entrypoint.sh
+**Статус:** 🟡 ДИАГНОЗ ПОДТВЕРЖДЁН — фикс подготовлен в `0.18.7`
 
 ---
 
@@ -69,7 +69,7 @@ fi
 ### Env переменные в sandbox (через CommandEvents)
 
 ```bash
-DP_TOKEN=ory_at_xA1z-8pdq7B-Z9I1tdYQPkvww7qybxLDGr7bqUFQDwA.Bza_W6U_G3oZnDieKDVaa6TnXDal_eLOsTYrrSgYkpY
+DP_TOKEN=<redacted-dp-token>
 BLAZE_RUNTIME_TOKEN=blaze-runtime-token-1782142045
 NESSY_CLI_DP_AUTH_TOKEN=$NESTOR_TOKEN  # ← ЭТО НЕ JWT!
 ```
@@ -111,7 +111,7 @@ curl -s -X POST \
 
 ---
 
-## Решение
+## Решение, внесённое в 0.18.7
 
 ### Исправить entrypoint.sh
 
@@ -156,6 +156,10 @@ prepare_nestor_credentials() {
 2. **Изменить проверку `BLAZE_DP_JWT`** — проверять на валидность (3 части)
 3. **Изменить проверку `NESSY_CLI_DP_AUTH_TOKEN`** — проверять на валидность (3 части), логировать если не JWT
 4. **Позволить fallback на `BLAZE_DP_TOKEN`** — если `NESSY_CLI_DP_AUTH_TOKEN` не валидный JWT
+5. **Обновить core runtime** — `packages/core/src/dp/dpTokenManager.ts` тоже
+   должен игнорировать non-JWT `NESSY_CLI_DP_AUTH_TOKEN`, иначе ACP child может
+   попытаться декодировать `$NESTOR_TOKEN` уже после успешного entrypoint
+   exchange.
 
 ---
 

@@ -31,6 +31,10 @@ const blazeRuntimeFreshnessMarkers = [
     label: 'raw Ory token is not decoded as JWT',
     text: 'DP auth received a non-JWT apiKey value',
   },
+  {
+    label: 'ML Core NESTOR_TOKEN placeholder is not decoded as JWT',
+    text: '$NESTOR_TOKEN',
+  },
 ];
 
 export function preparePackage({ rootDir = defaultRootDir } = {}) {

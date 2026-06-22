@@ -132,6 +132,7 @@ describe('package asset scripts', () => {
         'Use Nestor / DP auth',
         'BLAZE_RUNTIME_AUTH_TYPE',
         'DP auth received a non-JWT apiKey value',
+        '$NESTOR_TOKEN',
       ].join('\n'),
     );
     mkdirSync(path.join(rootDir, 'dist', 'vendor'), { recursive: true });

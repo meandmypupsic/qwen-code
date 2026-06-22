@@ -4,7 +4,7 @@
 Blaze Runtime Sandbox через ML Core Sandbox API.
 
 **Дата решения:** 2026-06-22  
-**Версия:** @art/blaze-runtime@0.18.6
+**Версия:** @art/blaze-runtime@0.18.7
 
 ---
 
@@ -39,6 +39,17 @@ Blaze Runtime Sandbox через ML Core Sandbox API.
   без DP/Nestor auth fixes. Это защищает от ситуации, когда
   `dist/package.json` уже показывает новую версию, но `dist/blaze-runtime.js`
   и `dist/chunks/*.js` остались от старой сборки.
+
+**Критическое изменение в v0.18.7:**
+
+- entrypoint больше не считает любое непустое `NESSY_CLI_DP_AUTH_TOKEN`
+  delegated JWT. ML Core может автоматически передать literal placeholder
+  `$NESTOR_TOKEN`; это не JWT. Runtime проверяет, что delegated token имеет три
+  dot-separated части, иначе продолжает обычный exchange через
+  `BLAZE_DP_TOKEN` / `DP_TOKEN`.
+- core DP token manager тоже игнорирует non-JWT `NESSY_CLI_DP_AUTH_TOKEN`, чтобы
+  ACP child мог загрузить cache или обменять `DP_TOKEN` вместо попытки
+  декодировать placeholder как JWT.
 
 ---
 
@@ -110,7 +121,7 @@ Preflight при этом мог показывать:
 3. DP runtime мог принять сырой `ory_at_...` из generic apiKey за JWT и пытался
    декодировать его как JWT.
 
-**Исправление:** использовать `@art/blaze-runtime@0.18.6` или новее и убедиться,
+**Исправление:** использовать `@art/blaze-runtime@0.18.7` или новее и убедиться,
 что `npm run prepare:package` прошёл без stale bundle ошибки.
 
 ---
@@ -163,7 +174,7 @@ ML Core sandbox не запускает Docker `ENTRYPOINT` автоматиче
   "project": "art",
   "spec": {
     "flavor": "2cpu-4ram",
-    "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6",
+    "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.7",
     "containerPorts": [
       {
         "name": "http",
@@ -226,7 +237,7 @@ curl -s -X POST \
     "project": "art",
     "spec": {
       "flavor": "2cpu-4ram",
-      "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6",
+      "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.7",
       "containerPorts": [{"port": 4170, "name": "http"}],
       "environment": {
         "BLAZE_RUNTIME_TOKEN": "'"$RUNTIME_TOKEN"'",
@@ -418,7 +429,10 @@ Entrypoint теперь делает то, что раньше делал ста
 ```
 
 Если передан `BLAZE_DP_JWT` или `NESSY_CLI_DP_AUTH_TOKEN`, entrypoint не делает
-token exchange: это уже delegated JWT flow.
+token exchange только когда значение похоже на настоящий JWT. Literal
+placeholder `$NESTOR_TOKEN`, который может автоматически прийти из ML Core, не
+считается JWT и не должен блокировать exchange через `BLAZE_DP_TOKEN` /
+`DP_TOKEN`.
 
 ### packages/acp-bridge/src/spawnChannel.ts
 
@@ -467,6 +481,7 @@ DP runtime больше не считает любую `apiKey` строку JWT
 Use Nestor / DP auth
 BLAZE_RUNTIME_AUTH_TYPE
 DP auth received a non-JWT apiKey value
+$NESTOR_TOKEN
 ```
 
 Если этих строк нет в `dist/`, значит был выполнен `npm run prepare:package`
@@ -486,7 +501,7 @@ cd dist
 npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 ```
 
-### Ожидаемый preflight после v0.18.6
+### Ожидаемый preflight после v0.18.7
 
 ```json
 {
@@ -499,6 +514,21 @@ npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-h
   }
 }
 ```
+
+## Изменения в v0.18.7
+
+### deploy/sandbox/blaze-runtime/entrypoint.sh
+
+`NESSY_CLI_DP_AUTH_TOKEN` и `BLAZE_DP_JWT` теперь проверяются как JWT: значение
+должно иметь три части, разделённые точками. Если ML Core прокинул
+`NESSY_CLI_DP_AUTH_TOKEN=$NESTOR_TOKEN`, entrypoint логирует, что это не JWT, и
+делает обычный Nestor exchange через `BLAZE_DP_TOKEN` / `DP_TOKEN`.
+
+### packages/core/src/dp/dpTokenManager.ts
+
+ACP child больше не считает non-JWT `NESSY_CLI_DP_AUTH_TOKEN` валидными
+credentials. Это важно, потому что даже после успешного entrypoint exchange в
+окружении child может оставаться placeholder `$NESTOR_TOKEN`.
 
 ---
 
@@ -531,8 +561,8 @@ npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-h
 | `401 Unauthorized` (daemon) | Невалидный runtime токен | Проверить `BLAZE_RUNTIME_TOKEN` в env          |
 | `null` proxy URL            | Нет `containerPorts`     | Добавить `[{port: 4170, name: "http"}]`        |
 | `Invalid port name`         | Имя порта > 16 символов  | Использовать `"http"` вместо `"blaze-runtime"` |
-| `No auth method configured` | Старый образ, stale bundle или ACP child не в `dp-auth` | Использовать `0.18.6+`, проверить bundle guard и `DP_AUTH=true` |
-| `Invalid JWT: expected 3 parts` | Сырой `ory_at_...` был принят за JWT или запущен старый bundle | Использовать `0.18.6+`, передавать raw DP token в `BLAZE_DP_TOKEN` |
+| `No auth method configured` | Старый образ, stale bundle или ACP child не в `dp-auth` | Использовать `0.18.7+`, проверить bundle guard и `DP_AUTH=true` |
+| `Invalid JWT: expected 3 parts` | Сырой `ory_at_...` или `$NESTOR_TOKEN` был принят за JWT, либо запущен старый bundle | Использовать `0.18.7+`, передавать raw DP token в `BLAZE_DP_TOKEN` |
 
 ---
 

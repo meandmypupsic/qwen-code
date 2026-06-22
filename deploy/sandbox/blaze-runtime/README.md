@@ -64,7 +64,8 @@ that exact mistake makes sandbox preflight report `auth.source: "none"` and
 session creation return only the `openai` auth method.
 
 If `@art/blaze-runtime@0.18.5` was already published from a stale `dist/`, do
-not reuse it for verification. Publish the next version, currently `0.18.6`.
+not reuse it for verification. `0.18.6` fixed the stale bundle guard, but the
+next sandbox auth fix is `0.18.7`.
 
 Important naming rule: do not publish the sandbox MVP package as
 `@qwen-code/qwen-code`. The repository can still keep upstream Qwen package
@@ -90,6 +91,7 @@ test -f dist/blaze-runtime.js
 test -f dist/blaze-runtime-entry.js
 grep -R "Use Nestor / DP auth" dist
 grep -R "BLAZE_RUNTIME_AUTH_TYPE" dist
+grep -R '\$NESTOR_TOKEN' dist
 ```
 
 ## 2. Publish the npm artifact
@@ -282,7 +284,11 @@ child starts with `--auth-type=dp-auth`. The runtime also accepts legacy
 `DP_TOKEN` and maps it to `BLAZE_DP_TOKEN`.
 
 If a delegated JWT is already available, pass it as `BLAZE_DP_JWT` or
-`NESSY_CLI_DP_AUTH_TOKEN`; in that case the entrypoint skips DP token exchange.
+`NESSY_CLI_DP_AUTH_TOKEN`; in that case the entrypoint writes the credentials
+cache from that JWT and skips DP token exchange. The value must be a real JWT
+with three dot-separated parts. ML Core may inject the literal placeholder
+`$NESTOR_TOKEN` into `NESSY_CLI_DP_AUTH_TOKEN`; the entrypoint must ignore that
+placeholder and fall back to `BLAZE_DP_TOKEN` / `DP_TOKEN` exchange.
 
 ## 6. Verify through the sandbox proxy URL
 

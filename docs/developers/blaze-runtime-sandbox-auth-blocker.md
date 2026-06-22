@@ -23,7 +23,7 @@ Docker image выполняет старый bundled JS. Такое возмож
 пересобрал `dist/blaze-runtime.js` через `npm run bundle`.
 
 `@art/blaze-runtime@0.18.5` теперь нужно считать подозрительным immutable
-artifact. Для следующей проверки использовать новую версию `0.18.6+`.
+artifact. Для следующей проверки использовать новую версию `0.18.7+`.
 
 В `0.18.6` добавлен guard: `npm run prepare:package` падает, если `dist/` не
 содержит DP/Nestor auth markers. Правильный recovery flow:
@@ -41,7 +41,7 @@ npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-h
 После этого собрать Docker image с:
 
 ```bash
-export BLAZE_RUNTIME_VERSION="0.18.6"
+export BLAZE_RUNTIME_VERSION="0.18.7"
 ```
 
 ---

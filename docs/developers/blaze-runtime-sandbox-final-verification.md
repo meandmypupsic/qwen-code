@@ -37,7 +37,7 @@ Rules:
 - `RUNTIME_URL` must be the proxy URL for port `4170`.
 - The sandbox image must be built from a version that contains the Nestor auth
   fix and a fresh `dist/` bundle. The expected fixed version is
-  `@art/blaze-runtime@0.18.6` or newer.
+  `@art/blaze-runtime@0.18.7` or newer.
 
 ## 0.1. Expected Sandbox Auth Boot
 

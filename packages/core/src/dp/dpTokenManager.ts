@@ -13,6 +13,7 @@ import { exchangeDpToken } from './dpTokenExchangeClient.js';
 import { decodeJwt, getJwtExpiryMs } from './jwtDecoder.js';
 
 const EXPIRY_SKEW_MS = 60_000;
+const ML_CORE_NESTOR_TOKEN_PLACEHOLDER = '$NESTOR_TOKEN';
 
 export interface DpCredentials {
   jwt: string;
@@ -35,7 +36,9 @@ function normalizeToken(value: string | undefined): string | undefined {
 }
 
 function isJwtLike(value: string): boolean {
-  return value.split('.').length === 3;
+  return (
+    value !== ML_CORE_NESTOR_TOKEN_PLACEHOLDER && value.split('.').length === 3
+  );
 }
 
 function isLikelyDpAccessToken(value: string): boolean {
@@ -145,12 +148,18 @@ export function saveCredentials(credentials: DpCredentials): void {
 }
 
 export function hasDpAuthCredentials(): boolean {
-  if (
-    process.env[BLAZE_DP_JWT_ENV] ||
-    process.env[LEGACY_NESSY_DP_AUTH_TOKEN_ENV]
-  ) {
+  const blazeJwt = normalizeToken(process.env[BLAZE_DP_JWT_ENV]);
+  if (blazeJwt && isJwtLike(blazeJwt)) {
     return true;
   }
+
+  const legacyEnvJwt = normalizeToken(
+    process.env[LEGACY_NESSY_DP_AUTH_TOKEN_ENV],
+  );
+  if (legacyEnvJwt && isJwtLike(legacyEnvJwt)) {
+    return true;
+  }
+
   if (process.env[BLAZE_DP_TOKEN_ENV] || process.env[LEGACY_DP_TOKEN_ENV]) {
     return true;
   }
@@ -178,14 +187,14 @@ export async function resolveDpCredentials(
   }
 
   const envJwt = normalizeToken(process.env[BLAZE_DP_JWT_ENV]);
-  if (envJwt) {
+  if (envJwt && isJwtLike(envJwt)) {
     return credentialsFromJwt(envJwt, 'env-jwt', BLAZE_DP_JWT_ENV);
   }
 
   const legacyEnvJwt = normalizeToken(
     process.env[LEGACY_NESSY_DP_AUTH_TOKEN_ENV],
   );
-  if (legacyEnvJwt) {
+  if (legacyEnvJwt && isJwtLike(legacyEnvJwt)) {
     return credentialsFromJwt(
       legacyEnvJwt,
       'env-jwt',

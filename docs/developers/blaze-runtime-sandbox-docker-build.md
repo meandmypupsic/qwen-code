@@ -78,11 +78,12 @@ npm run prepare:package
 
 # Проверка dist/package.json
 node -e "const p=require('./dist/package.json'); console.log(p.name, p.version, p.bin)"
-# Ожидаемый вывод: @art/blaze-runtime 0.18.6 { qwen: 'cli-entry.js', 'blaze-runtime': 'blaze-runtime-entry.js' }
+# Ожидаемый вывод: @art/blaze-runtime 0.18.7 { qwen: 'cli-entry.js', 'blaze-runtime': 'blaze-runtime-entry.js' }
 
 # Проверка, что опубликован будет свежий bundle, а не только свежая metadata.
 grep -R "Use Nestor / DP auth" dist
 grep -R "BLAZE_RUNTIME_AUTH_TYPE" dist
+grep -R '\$NESTOR_TOKEN' dist
 ```
 
 `npm run prepare:package` теперь сам падает, если `dist/` не содержит свежие
@@ -100,7 +101,7 @@ cd dist
 npm publish --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 
 # Проверка
-npm view @art/blaze-runtime@0.18.6 --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+npm view @art/blaze-runtime@0.18.7 --registry="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
 ```
 
 ### 3. Сборка Docker образа
@@ -109,7 +110,7 @@ npm view @art/blaze-runtime@0.18.6 --registry="https://artifactory.tcsbank.ru/ar
 cd /Users/s.salnikov/Documents/Developers/qwen-code
 
 export BLAZE_RUNTIME_PACKAGE="@art/blaze-runtime"
-export BLAZE_RUNTIME_VERSION="0.18.6"
+export BLAZE_RUNTIME_VERSION="0.18.7"
 export NPM_INSTALL_REGISTRY="https://artifactory.tcsbank.ru/artifactory/api/npm/npm-all/"
 export IMAGE="docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:${BLAZE_RUNTIME_VERSION}"
 
@@ -146,7 +147,7 @@ docker run --rm \
   -e BLAZE_RUNTIME_TOKEN="local-dev-token" \
   -e BLAZE_DP_TOKEN="<dp-token>" \
   -p 4170:4170 \
-  docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6
+  docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.7
 
 # В другом терминале: health check
 curl -i http://127.0.0.1:4170/health
@@ -185,7 +186,7 @@ curl -i -H "Authorization: Bearer local-dev-token" http://127.0.0.1:4170/health
 - `BLAZE_RUNTIME_PORT=4170`
 - `BLAZE_RUNTIME_WORKSPACE=/workspace`
 
-## Важно про v0.18.6 и Nestor auth
+## Важно про v0.18.7 и Nestor auth
 
 Не публикуй этот фикс как `0.18.4`: такой образ уже использовался в отчёте и
 падал на создании session с ошибкой `Invalid JWT: expected 3 parts`.
@@ -195,11 +196,15 @@ curl -i -H "Authorization: Bearer local-dev-token" http://127.0.0.1:4170/health
 говорит `0.18.5`, но runtime всё ещё возвращает только `openai` в
 `authMethods`.
 
+Также не используй `0.18.6` для проверки Nestor auth в ML Core sandbox: этот
+artifact ещё мог пропускать DP token exchange, если ML Core автоматически
+добавлял `NESSY_CLI_DP_AUTH_TOKEN=$NESTOR_TOKEN`.
+
 Для этого этапа ожидаемый артефакт:
 
 ```text
-npm:    @art/blaze-runtime@0.18.6
-docker: docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6
+npm:    @art/blaze-runtime@0.18.7
+docker: docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.7
 ```
 
 При запуске контейнера entrypoint должен вывести:
@@ -311,7 +316,7 @@ error from registry: forbidden action with repository
 
 ```bash
 dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
-docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6
+docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.7
 ```
 
 ### Итоговый рабочий алгоритм
@@ -323,7 +328,7 @@ cd dist && npm publish --registry="https://artifactory.tcsbank.ru/artifactory/ap
 
 # 2. Docker публикация
 dp auth service-acc --key-file ~/.nessy/skills/sa-art-docker-publisher.json
-docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.6
+docker push docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.7
 ```
 
 **Важно:** Не пытаться использовать Ory токены напрямую. Всегда использовать dp CLI
