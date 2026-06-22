@@ -128,7 +128,8 @@ export function allowOriginCors(
 ): RequestHandler {
   const allowedMethods = 'GET, POST, PATCH, DELETE, OPTIONS';
   const allowedHeaders =
-    'Authorization, Content-Type, X-Qwen-Client-Id, Last-Event-ID';
+    'Authorization, X-Blaze-Runtime-Authorization, Content-Type, ' +
+    'X-Qwen-Client-Id, Last-Event-ID';
   const maxAgeSeconds = '86400';
   const exposedHeaders = 'Retry-After';
   return (req: Request, res: Response, next: NextFunction) => {
@@ -256,6 +257,14 @@ export function hostAllowlist(
  * token configured, so this no-token branch is reachable only on loopback
  * developer setups that opted out of `--require-auth`.
  */
+const runtimeAuthorizationHeader = 'x-blaze-runtime-authorization';
+
+function firstHeaderValue(
+  value: string | string[] | undefined,
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export function bearerAuth(token: string | undefined): RequestHandler {
   if (!token) {
     return (_req: Request, _res: Response, next: NextFunction) => next();
@@ -265,7 +274,9 @@ export function bearerAuth(token: string | undefined): RequestHandler {
   // inequality short-circuiting.
   const expected = createHash('sha256').update(token, 'utf8').digest();
   return (req: Request, res: Response, next: NextFunction) => {
-    const header = req.headers.authorization;
+    const header =
+      firstHeaderValue(req.headers[runtimeAuthorizationHeader]) ??
+      firstHeaderValue(req.headers.authorization);
     if (!header) {
       res.status(401).json({ error: 'Unauthorized' });
       return;

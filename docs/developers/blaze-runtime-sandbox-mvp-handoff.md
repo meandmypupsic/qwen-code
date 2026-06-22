@@ -424,35 +424,57 @@ Do not call sandbox-agent `ExecuteCommand` for every prompt if that creates a
 new process each time. That loses agent context. The daemon process must stay
 alive and expose HTTP/ACP routes through sandbox proxy URLs.
 
+Important ML Core sandbox behavior: the sandbox API starts
+`/sandbox-binaries/sandbox-agent` as the main container command. The Docker
+image `ENTRYPOINT ["/entrypoint.sh"]` is useful for local `docker run`, but it
+does not automatically become the main process in ML Core sandbox jobs. Start
+the runtime once through `startupOptions.executeCommand` at sandbox creation
+time. This is acceptable because it is a single long-lived startup command, not
+one `ExecuteCommand` per user prompt.
+
 ## Suggested Sandbox Runtime Command
 
 Inside the sandbox container:
 
 ```bash
 export BLAZE_RUNTIME_TOKEN="$RANDOM_RUNTIME_TOKEN"
-export BLAZE_RUNTIME_ENTRY="/app/qwen-code/dist/blaze-runtime.js"
 export BLAZE_DP_TOKEN="$DP_TOKEN"
 
-node /app/qwen-code/scripts/blaze-runtime-entry.js serve \
-  --hostname 0.0.0.0 \
-  --port 4170 \
-  --workspace /workspace \
-  --require-auth
+/entrypoint.sh
 ```
 
-The sandbox platform must proxy port `4170` outward.
+For ML Core sandbox start, express that as:
 
-The external client should call the proxied URL with:
+```json
+{
+  "startupOptions": {
+    "executeCommand": ["/entrypoint.sh"],
+    "terminateAfterCommand": false
+  }
+}
+```
+
+The sandbox platform must proxy port `4170` outward. Use a short port name such
+as `http`; do not use `blaze-runtime` as a port name because platform port names
+may have length/character restrictions.
+
+The external client has two different auth layers:
 
 ```text
-Authorization: Bearer <BLAZE_RUNTIME_TOKEN>
+Authorization: Bearer <DP_TOKEN_FOR_ML_CORE_PROXY>
+X-Blaze-Runtime-Authorization: Bearer <BLAZE_RUNTIME_TOKEN>
 ```
+
+`Authorization` belongs to ML Core / DevPlatform. `X-Blaze-Runtime-Authorization`
+belongs to `blaze-runtime serve`. Do not set `BLAZE_RUNTIME_TOKEN` equal to the
+DP/Ory token just to reuse one header.
 
 For SSE calls through the sandbox proxy, use the same event route and headers:
 
 ```bash
 curl -N -sS \
-  -H "Authorization: Bearer <BLAZE_RUNTIME_TOKEN>" \
+  -H "Authorization: Bearer <DP_TOKEN_FOR_ML_CORE_PROXY>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <BLAZE_RUNTIME_TOKEN>" \
   -H "X-Qwen-Client-Id: <clientId>" \
   -H "Last-Event-ID: 0" \
   "<proxied-runtime-url>/session/<sessionId>/events?maxQueued=1024"
@@ -587,11 +609,22 @@ Do not guess. Collect this information and report it exactly:
      http://127.0.0.1:<port>/health
    ```
 
+   Through ML Core sandbox proxy, use both headers:
+
+   ```bash
+   curl -i \
+     -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+     -H "X-Blaze-Runtime-Authorization: Bearer <runtime-token>" \
+     "<proxied-runtime-url>/health"
+   ```
+
 7. Preflight response:
 
    ```bash
-   curl -s -H "Authorization: Bearer <runtime-token>" \
-     http://127.0.0.1:<port>/workspace/preflight
+   curl -s \
+     -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+     -H "X-Blaze-Runtime-Authorization: Bearer <runtime-token>" \
+     "<proxied-runtime-url>/workspace/preflight"
    ```
 
 8. Sandbox-specific information:

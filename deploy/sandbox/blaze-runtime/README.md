@@ -21,9 +21,15 @@ build/publish @art/blaze-runtime npm artifact with blaze-runtime bin
   -> call blaze-runtime serve through the sandbox proxy URL
 ```
 
-Do not run `sandbox-agent ExecuteCommand` for every prompt. The image entrypoint
-starts one long-lived `blaze-runtime serve` process. That daemon then keeps a
-long-lived ACP child process for the user's session.
+Do not run `sandbox-agent ExecuteCommand` for every prompt. The `/entrypoint.sh`
+script starts one long-lived `blaze-runtime serve` process. That daemon then
+keeps a long-lived ACP child process for the user's session.
+
+ML Core sandbox nuance: the sandbox API starts `/sandbox-binaries/sandbox-agent`
+as the main container command, so the Docker image `ENTRYPOINT` is not the
+process that automatically starts the runtime. Start `blaze-runtime serve` once
+through `startupOptions.executeCommand` when the sandbox is created. Do not use
+`ExecuteCommand` for every prompt.
 
 If Docker build or Artifactory publishing fails, also read
 `docs/developers/blaze-runtime-sandbox-docker-build.md`. It records the first
@@ -212,8 +218,37 @@ BLAZE_RUNTIME_PORT=4170
 BLAZE_RUNTIME_WORKSPACE=/workspace
 ```
 
-`BLAZE_RUNTIME_TOKEN` is the bearer token used by Nessy Blaze/BFF when calling
-the proxied runtime URL.
+Required startup command:
+
+```json
+{
+  "startupOptions": {
+    "executeCommand": ["/entrypoint.sh"],
+    "terminateAfterCommand": false
+  }
+}
+```
+
+This starts one long-lived `blaze-runtime serve` process. It is expected not to
+exit while the sandbox session is active.
+
+`BLAZE_RUNTIME_TOKEN` is the bearer token checked by `blaze-runtime serve`.
+When calling the runtime directly, pass it as:
+
+```text
+Authorization: Bearer <runtime-bearer-token>
+```
+
+When calling through the ML Core sandbox proxy, keep `Authorization` for ML
+Core/DP auth and pass the runtime token in the separate Blaze header:
+
+```text
+Authorization: Bearer <dp-token-for-ml-core-proxy>
+X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>
+```
+
+Do not set `BLAZE_RUNTIME_TOKEN` equal to the DP/Ory token just to make the
+headers line up. These are different security layers.
 
 `BLAZE_DP_TOKEN` is exchanged by Blaze Runtime against Nestor. The entrypoint
 also accepts legacy `DP_TOKEN` and maps it to `BLAZE_DP_TOKEN`.
@@ -226,15 +261,29 @@ Call it `<RUNTIME_URL>`.
 Health:
 
 ```bash
-curl -i "$RUNTIME_URL/health"
-curl -i -H "Authorization: Bearer <runtime-bearer-token>" "$RUNTIME_URL/health"
+curl -i \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  "$RUNTIME_URL/health"
+
+curl -i \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>" \
+  "$RUNTIME_URL/health"
+```
+
+Expected:
+
+```text
+DP header only -> request reaches proxy, then runtime returns HTTP 401
+DP + runtime headers -> HTTP 200 {"status":"ok"}
 ```
 
 Preflight:
 
 ```bash
 curl -sS \
-  -H "Authorization: Bearer <runtime-bearer-token>" \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>" \
   "$RUNTIME_URL/workspace/preflight" | jq .
 ```
 
@@ -242,7 +291,8 @@ Create session:
 
 ```bash
 CREATE_RESPONSE=$(curl -sS -X POST \
-  -H "Authorization: Bearer <runtime-bearer-token>" \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>" \
   -H "Content-Type: application/json" \
   -d '{}' \
   "$RUNTIME_URL/session")
@@ -256,7 +306,8 @@ Open SSE before prompts:
 
 ```bash
 curl -N -sS \
-  -H "Authorization: Bearer <runtime-bearer-token>" \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>" \
   -H "X-Qwen-Client-Id: $CLIENT_ID" \
   -H "Last-Event-ID: 0" \
   "$RUNTIME_URL/session/$SESSION_ID/events?maxQueued=1024" \
@@ -269,7 +320,8 @@ Prompt 1:
 
 ```bash
 curl -sS -X POST \
-  -H "Authorization: Bearer <runtime-bearer-token>" \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>" \
   -H "Content-Type: application/json" \
   -H "X-Qwen-Client-Id: $CLIENT_ID" \
   -d '{"prompt":[{"type":"text","text":"Remember this exact code word for the next message: ORBIT-17. Reply with OK only."}]}' \
@@ -287,7 +339,8 @@ Prompt 2:
 
 ```bash
 curl -sS -X POST \
-  -H "Authorization: Bearer <runtime-bearer-token>" \
+  -H "Authorization: Bearer <dp-token-for-ml-core-proxy>" \
+  -H "X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>" \
   -H "Content-Type: application/json" \
   -H "X-Qwen-Client-Id: $CLIENT_ID" \
   -d '{"prompt":[{"type":"text","text":"What exact code word did I ask you to remember? Answer with the code word only."}]}' \
@@ -322,6 +375,8 @@ Do not:
 - rebuild the old `nessy-cli` image;
 - call `nessy serve`;
 - run one `ExecuteCommand` per prompt;
+- assume Docker `ENTRYPOINT` starts automatically in ML Core sandbox;
+- reuse the DP/Ory token as `BLAZE_RUNTIME_TOKEN`;
 - manually create `~/.nessy/dp_auth_creds.json` in entrypoint;
 - print real tokens;
 - claim success from `promptId` alone;

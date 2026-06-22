@@ -8,6 +8,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { describe, expect, it } from 'vitest';
 import {
   allowOriginCors,
+  bearerAuth,
   createMutationGate,
   denyBrowserOriginCors,
   InvalidAllowOriginPatternError,
@@ -66,6 +67,42 @@ describe('denyBrowserOriginCors', () => {
     expect(res.nextCalled).toBe(false);
     expect(res.status).toBe(403);
     expect(res.headers.get('vary')).toBe('Origin');
+  });
+});
+
+describe('bearerAuth', () => {
+  it('falls back to Authorization for direct local clients', () => {
+    const res = invokeGate(bearerAuth('secret'), {
+      headers: { authorization: 'Bearer secret' },
+    });
+
+    expect(res.nextCalled).toBe(true);
+    expect(res.status).toBeUndefined();
+  });
+
+  it('accepts X-Blaze-Runtime-Authorization for proxied sandbox clients', () => {
+    const res = invokeGate(bearerAuth('runtime-secret'), {
+      headers: {
+        authorization: 'Bearer dp-token-for-ml-core',
+        'x-blaze-runtime-authorization': 'Bearer runtime-secret',
+      },
+    });
+
+    expect(res.nextCalled).toBe(true);
+    expect(res.status).toBeUndefined();
+  });
+
+  it('rejects when the runtime auth header is present but wrong', () => {
+    const res = invokeGate(bearerAuth('runtime-secret'), {
+      headers: {
+        authorization: 'Bearer runtime-secret',
+        'x-blaze-runtime-authorization': 'Bearer wrong',
+      },
+    });
+
+    expect(res.nextCalled).toBe(false);
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'Unauthorized' });
   });
 });
 
@@ -326,6 +363,9 @@ describe('allowOriginCors (T2.4 #4514)', () => {
     expect(res.headers.get('access-control-allow-methods')).toMatch(/GET/);
     expect(res.headers.get('access-control-allow-headers')).toMatch(
       /Authorization/,
+    );
+    expect(res.headers.get('access-control-allow-headers')).toMatch(
+      /X-Blaze-Runtime-Authorization/,
     );
     expect(res.headers.get('access-control-max-age')).toBe('86400');
     expect(res.headers.get('access-control-expose-headers')).toBe(

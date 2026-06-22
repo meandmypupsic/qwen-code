@@ -12,6 +12,28 @@ Blaze Runtime Sandbox через ML Core Sandbox API, и как мы их реш
 
 Теперь нужно запустить sandbox через ML Core API и проверить работу.
 
+## Критическое уточнение после диагностики
+
+Первичный отчёт ниже полезен как история отладки, но два его промежуточных
+вывода были неполными:
+
+1. В ML Core sandbox не нужно ждать, что Docker `ENTRYPOINT` нашего image станет
+   главным процессом. Sandbox API запускает `/sandbox-binaries/sandbox-agent`,
+   а пользовательскую команду надо передать через `startupOptions.executeCommand`.
+   Для Blaze Runtime это должен быть один долгоживущий startup command:
+   `["/entrypoint.sh"]`.
+
+2. Не нужно делать `BLAZE_RUNTIME_TOKEN = DP token`. Это смешивает два разных
+   слоя авторизации. Через ML Core proxy используем два заголовка:
+
+   ```text
+   Authorization: Bearer <dp-token-for-ml-core-proxy>
+   X-Blaze-Runtime-Authorization: Bearer <runtime-bearer-token>
+   ```
+
+   `Authorization` проверяет ML Core / DevPlatform. Новый заголовок
+   `X-Blaze-Runtime-Authorization` проверяет `blaze-runtime serve`.
+
 ---
 
 ## Проблема 1: Sandbox создан без containerPorts — нет proxy URL
@@ -141,7 +163,7 @@ curl -H "Authorization: Bearer <DP_TOKEN>" \
 
 **ML Core Proxy** проверяет DP токен. Без него — `401 Unauthorized` от proxy.
 
-#### 2. Доступ к blaze-runtime
+#### 2. Доступ к blaze-runtime напрямую, без ML Core proxy
 
 ```bash
 curl -H "Authorization: Bearer <BLAZE_RUNTIME_TOKEN>" \
@@ -149,6 +171,9 @@ curl -H "Authorization: Bearer <BLAZE_RUNTIME_TOKEN>" \
 ```
 
 **blaze-runtime** проверяет `BLAZE_RUNTIME_TOKEN`. Без него — `401 Unauthorized` от daemon.
+Через ML Core proxy использовать этот же `Authorization` для runtime token нельзя:
+он занят DP-токеном для proxy. Через proxy используйте
+`X-Blaze-Runtime-Authorization`.
 
 #### 3. Обмен на Nestor JWT
 
@@ -190,7 +215,7 @@ ML Core Proxy:
 blaze-runtime:
 
 1. Получает запрос от proxy
-2. Проверяет `Authorization: Bearer <BLAZE_RUNTIME_TOKEN>`
+2. Проверяет `X-Blaze-Runtime-Authorization: Bearer <BLAZE_RUNTIME_TOKEN>`
 3. Отвечает
 
 **Вопрос:** передаёт ли proxy заголовок `Authorization` в sandbox?
@@ -236,7 +261,11 @@ ps aux
 - **Нет логов от entrypoint.sh** — значит он не выполнился или упал
 - **Нет логов от blaze-runtime** — значит не запускался
 
-**Вывод:** entrypoint.sh упал на проверке переменных окружения.
+**Уточнённый вывод:** в ML Core sandbox пользовательский Docker `ENTRYPOINT` не
+является основным процессом. Основным процессом является sandbox-agent. Поэтому
+`/entrypoint.sh` нужно явно запускать через `startupOptions.executeCommand`.
+Отсутствующие env всё равно были отдельной проблемой, но даже с env не стоит
+рассчитывать на автоматический Docker ENTRYPOINT.
 
 ### Ручной запуск blaze-runtime
 
@@ -352,32 +381,35 @@ curl -H "Authorization: Bearer sandbox-dev-token" \
 
 Proxy не пропускает запрос без DP token.
 
-### Тупик
+### Тупик в старой реализации
 
 - Proxy требует DP token
 - blaze-runtime требует BLAZE_RUNTIME_TOKEN
-- Proxy **не передаёт** Authorization заголовок в sandbox
+- оба слоя хотели использовать один и тот же HTTP header `Authorization`
 
-**Решение:** использовать один токен для обоих уровней?
+**Правильное решение:** не использовать один токен для обоих уровней. Runtime
+теперь поддерживает отдельный заголовок `X-Blaze-Runtime-Authorization`, поэтому
+`Authorization` остаётся внешним DP/ML Core proxy header.
 
 ---
 
 ## Проблема 7: Как передавать оба токена?
 
-### Вариант 1: Разные заголовки
+### Правильный вариант: разные заголовки
 
 ```bash
 curl \
   -H "Authorization: Bearer $DP_TOKEN" \
-  -H "X-Blaze-Token: $BLAZE_RUNTIME_TOKEN" \
+  -H "X-Blaze-Runtime-Authorization: Bearer $BLAZE_RUNTIME_TOKEN" \
   https://mlcore.t-tech.team/.../ports/4170/health
 ```
 
-**Проблема:** blaze-runtime проверяет только `Authorization`.
+`Authorization` проверяет ML Core proxy. `X-Blaze-Runtime-Authorization`
+проверяет `blaze-runtime serve`.
 
-### Вариант 2: DP token = BLAZE_RUNTIME_TOKEN
+### Неправильный вариант: DP token = BLAZE_RUNTIME_TOKEN
 
-Передать один и тот же токен в обоих местах:
+Не передавать один и тот же токен в обоих местах:
 
 ```json
 {
@@ -393,7 +425,8 @@ curl -H "Authorization: Bearer ory_at_..." \
   https://mlcore.t-tech.team/.../ports/4170/health
 ```
 
-**Проверка:** blaze-runtime должен принять любой не-пустой токен.
+Это был временный обходной вариант из первичной отладки. Не использовать его как
+целевой MVP flow.
 
 ---
 
@@ -418,12 +451,16 @@ curl -X POST \
       "image": "docker-hosted.artifactory.tcsbank.ru/art/blaze-runtime-sandbox:0.18.3",
       "containerPorts": [{"port": 4170, "name": "http"}],
       "environment": {
-        "BLAZE_RUNTIME_TOKEN": "'"$DP_TOKEN"'",
+        "BLAZE_RUNTIME_TOKEN": "'"$BLAZE_RUNTIME_TOKEN"'",
         "BLAZE_DP_TOKEN": "'"$DP_TOKEN"'",
         "BLAZE_RUNTIME_HOST": "0.0.0.0",
         "BLAZE_RUNTIME_PORT": "4170",
         "BLAZE_RUNTIME_WORKSPACE": "/workspace"
       }
+    },
+    "startupOptions": {
+      "executeCommand": ["/entrypoint.sh"],
+      "terminateAfterCommand": false
     }
   }' \
   https://mlcore.t-tech.team/tools/sandbox-api/mlcore.api.v1beta.sandbox.SandboxManagement/Start
@@ -432,7 +469,8 @@ curl -X POST \
 **Критично:**
 
 - `containerPorts` с именем `< 16` символов
-- `BLAZE_RUNTIME_TOKEN` = DP token (для упрощения)
+- `startupOptions.executeCommand = ["/entrypoint.sh"]`
+- `BLAZE_RUNTIME_TOKEN` — отдельный runtime token, не DP token
 - `BLAZE_DP_TOKEN` = DP token (для Nestor)
 
 ### 3. Дождаться RUNNING
@@ -452,6 +490,7 @@ curl -X POST \
 RUNTIME_URL="https://mlcore.t-tech.team/tools/jobs-proxy/projects/art/jobs/.../ports/4170/"
 
 curl -H "Authorization: Bearer $DP_TOKEN" \
+  -H "X-Blaze-Runtime-Authorization: Bearer $BLAZE_RUNTIME_TOKEN" \
   "$RUNTIME_URL/health"
 ```
 
@@ -468,9 +507,10 @@ curl -H "Authorization: Bearer $DP_TOKEN" \
 - [ ] Получить свежий DP token (`dp-auth-token.py`)
 - [ ] Указать `containerPorts` с коротким именем (`http`, не `blaze-runtime`)
 - [ ] Передать `environment` с `BLAZE_RUNTIME_TOKEN` и `BLAZE_DP_TOKEN`
-- [ ] Использовать DP token как `BLAZE_RUNTIME_TOKEN` (для упрощения)
+- [ ] Передать `startupOptions.executeCommand: ["/entrypoint.sh"]`
+- [ ] Не использовать DP token как `BLAZE_RUNTIME_TOKEN`
 - [ ] Дождаться `RUNNING` и появления proxy URL
-- [ ] Проверить health с DP token в Authorization
+- [ ] Проверить health с DP token в `Authorization` и runtime token в `X-Blaze-Runtime-Authorization`
 - [ ] Если 502 — проверить `ps aux` внутри sandbox
 - [ ] Если 401 — проверить что `BLAZE_RUNTIME_TOKEN` установлен
 
